@@ -7,6 +7,7 @@ import { drawFace, FPS, HEIGHT, WIDTH } from './face.mjs';
 import { cropFacetimeFrame, frameToAgentRgba } from './frame_display.mjs';
 import { greetOnBridgeReady } from './greet.mjs';
 
+const LOOK_EVERY_MS = 8_000;
 const READY_TTL_MS = 2_500;
 const COUNTDOWN_MS = 3_200;
 const SNAP_FRAMES = Math.round(FPS * 0.7);
@@ -14,14 +15,13 @@ const REPLAY_FRAMES = Math.round(FPS * 4);
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-// Grok Voice never gets pixels. Cheese runs a ready-check, countdown, then snap.
+// Silent auto looks compare the caller to the skeleton. Cheese is the only visible snap.
 const instructions = `You are a pose coach on a FaceTime video call.
 Always speak English only. Never switch languages.
-The caller sees a sample skeleton to line up with. They can ask for guidance anytime.
-Only take a photo when they clearly say cheese, or clearly confirm they want a photo now (yes / take the photo / I'm ready after you asked).
-When they want a photo, call the take_photo tool. Do not take photos on a timer and do not take one just because you are chatting.
-After a photo, acknowledge it briefly and ask if they want another. If they say yes, tell them to say cheese when ready.
-If guidance is requested, call the guide_pose tool and say only that cue.
+The caller sees a sample skeleton to line up with. Silent camera checks run in the background; when you receive a pose cue, say only that cue in one short sentence, then stop. Do not say you took a photo for those cues.
+Only take a real photo when they clearly say cheese, or clearly confirm they want a photo now (yes / take the photo / I'm ready after you asked). Then call the take_photo tool.
+After a real photo, acknowledge it briefly and ask if they want another. If they say yes, tell them to say cheese when ready.
+If they ask for guidance, call the guide_pose tool and say only that cue.
 Never invent a correction that was not in a cue. Never mention files or messaging.
 Be clear that you are an AI.`;
 const greeting = 'Greet in one short English sentence: say they can ask for guidance, you will help them match the pose, and to say cheese for a three-two-one countdown before a photo.';
@@ -39,8 +39,8 @@ export default defineAgent({
 
     const source = new VideoSource(WIDTH, HEIGHT);
     const track = LocalVideoTrack.createVideoTrack('agent-video', source);
-    let tick = 0, speaking = false, busy = false;
-    let snapUntil = 0, replayUntil = 0, countdownDigit = 0;
+    let tick = 0, speaking = false, busy = false, looking = false, lastCue = '', announcedWait = false;
+    let snapUntil = 0, replayUntil = 0, countdownDigit = 0, lookTimer;
     /** @type {{ at: number, seen: boolean, cue: string | null } | null} */
     let lastReady = null;
     /** @type {Uint8Array | null} */
@@ -105,8 +105,29 @@ export default defineAgent({
       return result;
     };
 
+    /**
+     * Silent auto shutter: compare to the skeleton only. No flash, preview, or save.
+     * @param {import('@livekit/rtc-node').VideoFrame} cropped
+     */
+    const silentLook = async (cropped) => {
+      const result = await takePhotoFromFrame(cropped, { save: false });
+      lastReady = { at: Date.now(), seen: result.seen, cue: result.cue };
+      if (!result.seen) {
+        console.log('[caller-vision] silent look: nobody in frame');
+        return result;
+      }
+      if (!result.cue || result.cue === lastCue || speaking || busy) return result;
+      lastCue = result.cue;
+      console.log(`[caller-vision] silent look cue: ${result.cue}`);
+      session.generateReply({
+        instructions: `Speak English only. A silent pose check against the skeleton just ran (the caller did not see a shutter). Say only this cue in one short sentence, then stop. Do not say you took a photo: ${result.cue}`,
+      });
+      return result;
+    };
+
     ctx.addShutdownCallback(async () => {
       clearInterval(timer);
+      clearInterval(lookTimer);
       camera.stop();
       await session.close();
       await track.close();
@@ -225,6 +246,21 @@ export default defineAgent({
     });
 
     const stopGreeting = greetOnBridgeReady(ctx.room, () => session.generateReply({ instructions: greeting }));
+    lookTimer = setInterval(() => {
+      if (busy || looking || speaking || countdownDigit) return;
+      const cropped = latestCropped();
+      if (!cropped) {
+        if (!announcedWait) {
+          announcedWait = true;
+          console.log('[caller-vision] no caller camera frame yet');
+        }
+        return;
+      }
+      looking = true;
+      silentLook(cropped).catch(error => {
+        console.warn('[caller-vision] silent look failed', error instanceof Error ? error.message : error);
+      }).finally(() => { looking = false; });
+    }, LOOK_EVERY_MS);
     ctx.addShutdownCallback(async () => stopGreeting());
   },
 });
