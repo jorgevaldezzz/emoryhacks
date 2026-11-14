@@ -25,7 +25,12 @@ export default defineAgent({
     // Chert prepares a room before a caller exists. Join promptly so Chert can
     // find us, but wait before opening a paid model session or sending video.
     const caller = await ctx.waitForParticipant();
-    const camera = watchCallerCamera(ctx.room, caller.identity);
+    let camera = { latest: () => null, stop() {} };
+    try {
+      camera = watchCallerCamera(ctx.room, caller);
+    } catch (error) {
+      console.warn('[caller-vision] camera watch failed', error instanceof Error ? error.message : error);
+    }
 
     // Video: one camera track, published by this agent. The Mac shows video only
     // from the participant that speaks, so the picture and the voice stay together.
