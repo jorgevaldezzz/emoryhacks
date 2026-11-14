@@ -1,11 +1,13 @@
 import { fileURLToPath } from 'node:url';
+import { readFile } from 'node:fs/promises';
 import { AutoSubscribe, cli, defineAgent, llm, ServerOptions, voice } from '@livekit/agents';
 import * as xai from '@livekit/agents-plugin-xai';
 import { LocalVideoTrack, TrackSource, VideoBufferType, VideoFrame, VideoSource } from '@livekit/rtc-node';
-import { takePhotoFromFrame, watchCallerCamera } from './caller_vision.mjs';
+import { encodeFramePng, takePhotoFromFrame, watchCallerCamera } from './caller_vision.mjs';
 import { drawFace, FPS, HEIGHT, WIDTH } from './face.mjs';
 import { frameToAgentRgba } from './frame_display.mjs';
 import { greetOnBridgeReady } from './greet.mjs';
+import { createPoseMatcher, extractPoseFromImage } from '../pose-matcher/src/index.mjs';
 
 const LOOK_EVERY_MS = 8_000;
 const SNAP_FRAMES = Math.round(FPS * 0.7);
@@ -18,6 +20,7 @@ Always speak English only. Never switch to Spanish or any other language, even i
 The caller sees your animated face, a bright white flash when a photo is taken, then the photo itself on your video.
 Photos are taken for them. When you are told a photo was taken, always acknowledge it in one short English sentence, mention what you noticed if a cue is given, then ask if they want more photos. Then stop.
 If they say yes, more, another, keep going, or ask you to take a photo, call the take_photo tool.
+If they ask to compare or check their pose against the reference photo, call check_pose. Give the returned correction briefly, one step at a time. Never invent a mismatch.
 If the camera is off or the frame is empty, say so briefly in English and ask them to turn the camera back on. Do not apologize in another language.
 Never say you cannot see a file, or that messaging is missing.
 Never invent a correction that was not in a cue.
@@ -75,6 +78,24 @@ export default defineAgent({
       llm: new xai.realtime.RealtimeModel({ voice: 'leo' }),
     });
     session.on(voice.AgentSessionEventTypes.AgentStateChanged, event => { speaking = event.newState === 'speaking'; });
+
+    // Reference-pose checks are a separate opt-in tool. The reference image is
+    // configured locally; only normalized landmarks and feedback reach the voice model.
+    let poseMatcher;
+    if (process.env.POSE_REFERENCE_IMAGE) {
+      try {
+        const bytes = await readFile(process.env.POSE_REFERENCE_IMAGE);
+        const extension = process.env.POSE_REFERENCE_IMAGE.toLowerCase().split('.').at(-1);
+        const mime = extension === 'png' ? 'image/png' : extension === 'webp' ? 'image/webp' : 'image/jpeg';
+        const reference = `data:${mime};base64,${bytes.toString('base64')}`;
+        poseMatcher = createPoseMatcher({ extractPose: image => extractPoseFromImage(image) });
+        await poseMatcher.setReference(reference);
+        console.log('[pose-matcher] reference pose ready');
+      } catch (error) {
+        console.warn('[pose-matcher] reference pose unavailable', error instanceof Error ? error.message : error);
+        poseMatcher = undefined;
+      }
+    }
 
     /**
      * Flash, show the frame on FaceTime, save, and ask vision for a cue.
@@ -142,6 +163,27 @@ export default defineAgent({
               }
             },
           }),
+          ...(poseMatcher ? {
+            check_pose: llm.tool({
+              description: 'Compare the caller pose now with the configured reference photo. Use only when the caller asks to check or compare their pose.',
+              execute: async () => {
+                if (looking) return { ok: false, message: 'A photo check is already in progress. Wait a moment.' };
+                const photo = camera.latest();
+                if (!photo) return { ok: false, message: 'I do not have a camera frame yet. Keep FaceTime Video on and stay in frame.' };
+                looking = true;
+                try {
+                  const encoded = await encodeFramePng(photo);
+                  if (!encoded) return { ok: false, message: 'I could not read the camera frame. Please try again.' };
+                  const result = await poseMatcher.check(`data:image/png;base64,${encoded.base64Data}`);
+                  console.log(`[pose-matcher] ${result.status}${result.score === null ? '' : ` score=${result.score}`}`);
+                  return { ok: result.ok, message: `Speak English only. Tell the caller: ${result.feedback}` };
+                } catch (error) {
+                  console.warn('[pose-matcher] check failed', error instanceof Error ? error.message : error);
+                  return { ok: false, message: 'I could not compare the poses just now. Please try again.' };
+                } finally { looking = false; }
+              },
+            }),
+          } : {}),
         },
       }),
       record: false,

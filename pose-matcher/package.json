@@ -1,0 +1,9 @@
+{
+  "name": "@emoryhacks/pose-matcher",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "exports": { ".": "./src/index.mjs" },
+  "scripts": { "test": "node --test test/*.test.mjs", "check": "node --check src/index.mjs && node --check src/extract.mjs && node --check src/compare.mjs && node --check src/session.mjs" }
+}

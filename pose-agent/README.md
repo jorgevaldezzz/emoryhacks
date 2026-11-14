@@ -91,3 +91,22 @@ FaceTime call by Chert yet: watch the media line in `chert dev` on your first ca
 - The waiting room shows that the agent joined LiveKit. It does not verify the
   model key or the media path. The first call does.
 - Never commit or share `.env.local`. LiveKit and model usage may cost money.
+
+## Compare against a reference pose
+
+The independent `../pose-matcher/` package is exposed in this agent as an
+opt-in `check_pose` tool. To enable it, add an absolute local image path to
+`.env.local`:
+
+```sh
+POSE_REFERENCE_IMAGE=/absolute/path/to/reference.jpg
+```
+
+Restart both `npm start` and `chert dev`, then ask the agent to check your pose.
+It compares the reference with the newest caller-camera frame and speaks one
+short cue. It does not check automatically; the caller asks for each comparison.
+The reference image and caller frame are sent to xAI vision for landmark
+extraction (`store: false`). Only pose landmarks and correction text are passed
+to the voice session. The comparison is approximate, especially when joints are
+occluded or perspective makes left and right ambiguous. See
+[`../pose-matcher/README.md`](../pose-matcher/README.md).
