@@ -45,15 +45,15 @@ describe('cueFromVisionText', () => {
 
 describe('drawFace shutter', () => {
   it('changes pixels when snapping', () => {
-    const idle = drawFace(0, false, false);
-    const snap = drawFace(0, false, true);
+    const idle = drawFace(0, false, false, 0);
+    const snap = drawFace(0, false, true, 0);
     assert.notDeepEqual(idle, snap);
   });
 });
 
 describe('encode and save capture', () => {
   it('writes a PNG the vision path can reuse', async () => {
-    const frame = new VideoFrame(drawFace(3, false), 640, 360, VideoBufferType.RGBA);
+    const frame = new VideoFrame(drawFace(3, false, false, 0), 640, 360, VideoBufferType.RGBA);
     const encoded = await encodeFramePng(frame);
     assert.ok(encoded?.bytes?.length > 100);
     assert.equal(encoded.bytes[0], 0x89);
@@ -76,7 +76,7 @@ describe('encode and save capture', () => {
 
 describe('takePhotoFromFrame', () => {
   it('returns a spoken message when vision sees the caller', async () => {
-    const frame = new VideoFrame(drawFace(1, false), 640, 360, VideoBufferType.RGBA);
+    const frame = new VideoFrame(drawFace(1, false, false, 0), 640, 360, VideoBufferType.RGBA);
     const dir = await mkdtemp(path.join(tmpdir(), 'pose-photo-'));
     try {
       const result = await takePhotoFromFrame(frame, {
@@ -99,21 +99,27 @@ describe('takePhotoFromFrame', () => {
     }
   });
 
-  it('explains when nobody is in frame', async () => {
-    const frame = new VideoFrame(drawFace(2, true), 640, 360, VideoBufferType.RGBA);
-    const result = await takePhotoFromFrame(frame, {
-      apiKey: 'test-key',
-      save: false,
-      fetchImpl: async () => ({
-        ok: true,
-        json: async () => ({
-          output: [{ content: [{ text: '{"seen": false, "cue": null}' }] }],
+  it('does not save when nobody is in frame', async () => {
+    const frame = new VideoFrame(drawFace(2, true, false, 0), 640, 360, VideoBufferType.RGBA);
+    const dir = await mkdtemp(path.join(tmpdir(), 'pose-empty-'));
+    try {
+      const result = await takePhotoFromFrame(frame, {
+        apiKey: 'test-key',
+        captureDir: dir,
+        fetchImpl: async () => ({
+          ok: true,
+          json: async () => ({
+            output: [{ content: [{ text: '{"seen": false, "cue": null}' }] }],
+          }),
         }),
-      }),
-    });
-    assert.equal(result.ok, true);
-    assert.equal(result.seen, false);
-    assert.equal(result.cue, null);
-    assert.match(result.message, /no person/i);
+      });
+      assert.equal(result.ok, true);
+      assert.equal(result.seen, false);
+      assert.equal(result.cue, null);
+      assert.equal(result.savedPath, undefined);
+      assert.match(result.message, /no person/i);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });

@@ -53,11 +53,11 @@ publishes an audio track, and shows video **only from that same participant**.
 
 ## Caller vision
 
-The agent watches the FaceTime camera. About eight seconds into the call it
-takes a photo (bright white flash, then the still on its video), saves it under
-`captures/` with a timestamped name, and asks if you want more. Say yes or
-**take a photo** for another. Each shot is sent to vision for a short cue when
-possible; the FaceTime preview still shows even if vision cannot describe it.
+The agent shows a sample skeleton to line up with. Ask for **guidance** anytime.
+Say **cheese** for a 3-2-1 countdown; it ready-checks first and only saves a
+photo when someone is in frame (FaceTime chrome is cropped out). After a shot it
+asks if you want another — say cheese again when ready. Captures land in
+`captures/` as timestamped PNGs.
 
 ## Change the picture
 

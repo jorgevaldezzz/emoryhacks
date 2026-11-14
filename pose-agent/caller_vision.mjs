@@ -233,16 +233,6 @@ export async function takePhotoFromFrame(frame, options = {}) {
     return { ok: false, seen: false, cue: null, message: 'Could not encode the camera frame.' };
   }
 
-  /** @type {string | undefined} */
-  let savedPath;
-  if (options.save !== false) {
-    try {
-      savedPath = await saveCapturePng(encoded.bytes, { dir: options.captureDir });
-    } catch (error) {
-      console.warn('[caller-vision] could not save capture', error instanceof Error ? error.message : error);
-    }
-  }
-
   const response = await (options.fetchImpl ?? fetch)(VISION_URL, {
     method: 'POST',
     headers: {
@@ -269,12 +259,22 @@ export async function takePhotoFromFrame(frame, options = {}) {
   }
 
   const { seen, cue } = resultFromVisionText(visionOutputText(payload));
+  /** @type {string | undefined} */
+  let savedPath;
+  // Only keep chronological captures when a person is actually in frame.
+  if (options.save !== false && seen) {
+    try {
+      savedPath = await saveCapturePng(encoded.bytes, { dir: options.captureDir });
+    } catch (error) {
+      console.warn('[caller-vision] could not save capture', error instanceof Error ? error.message : error);
+    }
+  }
   if (!seen) {
     return {
       ok: true,
       seen: false,
       cue: null,
-      message: 'Photo taken, but no person was clearly visible. Ask them to step back, face the camera, and try again.',
+      message: 'No person was clearly visible. Do not treat this as a taken photo.',
       savedPath,
     };
   }
@@ -286,7 +286,6 @@ export async function takePhotoFromFrame(frame, options = {}) {
     savedPath,
   };
 }
-
 /**
  * @param {VideoFrame} frame
  * @param {{ apiKey?: string, model?: string, fetchImpl?: typeof fetch }} [options]
