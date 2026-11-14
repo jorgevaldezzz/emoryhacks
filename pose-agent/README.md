@@ -53,11 +53,12 @@ publishes an audio track, and shows video **only from that same participant**.
 
 ## Caller vision
 
-The agent watches the FaceTime camera. About eight seconds into the call it
-takes a photo (bright white flash, then the still on its video), saves it under
-`captures/` with a timestamped name, and asks if you want more. Say yes or
-**take a photo** for another. Each shot is sent to vision for a short cue when
-possible; the FaceTime preview still shows even if vision cannot describe it.
+You see the animated AI face on FaceTime. About every eight seconds the agent
+silently estimates your pose, compares it to an internal sample skeleton, and
+may coach you — or tell you when you look ready. Those checks never flash or
+preview a still. Say **cheese** for an immediate 3-2-1: shutter flash, still on
+FaceTime, and a timestamped PNG in `captures/` — vision tips run after the snap
+so they never delay the photo.
 
 ## Change the picture
 
@@ -94,17 +95,19 @@ FaceTime call by Chert yet: watch the media line in `chert dev` on your first ca
 
 ## Compare against a reference pose
 
-The independent `../pose-matcher/` package is exposed in this agent as an
-opt-in `check_pose` tool. To enable it, add an absolute local image path to
-`.env.local`:
+The independent `../pose-matcher/` package is exposed as an opt-in
+`match_reference_pose` tool, separate from the agent's built-in `guide_pose`.
+The current development reference is stored in `reference-images/`. To use a
+different image, set its absolute path in `.env.local`:
 
 ```sh
 POSE_REFERENCE_IMAGE=/absolute/path/to/reference.jpg
 ```
 
-Restart both `npm start` and `chert dev`, then ask the agent to check your pose.
-It compares the reference with the newest caller-camera frame and speaks one
-short cue. It does not check automatically; the caller asks for each comparison.
+Restart both `npm start` and `chert dev`, then ask the agent to compare your pose
+with the reference photo. It compares the reference with the newest caller-camera
+frame and speaks one short cue. It does not check automatically; the caller asks
+for each comparison.
 The reference image and caller frame are sent to xAI vision for landmark
 extraction (`store: false`). Only pose landmarks and correction text are passed
 to the voice session. The comparison is approximate, especially when joints are

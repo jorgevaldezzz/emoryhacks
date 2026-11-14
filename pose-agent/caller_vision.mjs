@@ -5,22 +5,33 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { llm } from '@livekit/agents';
 import { RoomEvent, TrackKind, TrackSource, VideoFrame, VideoStream } from '@livekit/rtc-node';
+import { describeSampleSkeleton } from './skeleton.mjs';
 
 const CALLER_TRACK = 'facetime-remote-video';
 const VISION_URL = 'https://api.x.ai/v1/responses';
 const DEFAULT_MODEL = 'grok-4.7';
 const CAPTURE_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), 'captures');
 
-const VISION_PROMPT = `You are looking at one photo from the caller's FaceTime camera.
-Reply with JSON only, no markdown: {"seen": false, "cue": null} or {"seen": true, "cue": "<one short spoken sentence in English>"}.
+/**
+ * Build the vision prompt. The sample skeleton is an internal target only — the
+ * caller never sees it; estimate their pose from this photo and compare.
+ * @param {string} [targetPose]
+ */
+export function buildVisionPrompt(targetPose = describeSampleSkeleton()) {
+  return `Estimate the caller's body pose from this FaceTime frame (head, shoulders, elbows, wrists, hips, knees, ankles).
+Compare that pose to this INTERNAL target (they cannot see it): ${targetPose}
+Reply with JSON only, no markdown: {"seen": false, "ready": false, "cue": null} or {"seen": true, "ready": false|true, "cue": "<one short English coaching tip>"}.
 Set seen to true when a person is clearly visible.
-When seen is true, cue must be English only and describe what they are doing right now in one short spoken sentence: smile, frown, facing the camera, turned away, waving, hands up, sitting, standing, stepping back, too close, or similar.
-If nothing special is happening, say a brief ready/framed observation such as "You're facing the camera and look ready."
-When seen is false (blank, dark, camera off, no person), cue must be null.
-Do not invent body parts or actions you cannot see. Do not mention files, folders, or messaging. Never write the cue in Spanish or any language other than English.`;
+Set ready to true only when their pose closely matches the target. Otherwise ready is false.
+When seen is true, cue must be ONLY a body correction or readiness line — for example "Raise your left arm a bit." or "You look ready — say cheese when you want the shot."
+Never mention photos, images, snapshots, cameras, files, folders, messaging, skeletons on screen, or that you are looking/checking/reviewing anything. Never write Spanish or any language other than English.
+When seen is false (blank, dark, camera off, no person), ready must be false and cue must be null.`;
+}
+
+const VISION_PROMPT = buildVisionPrompt();
 
 /**
- * @typedef {{ ok: boolean, seen: boolean, cue: string | null, message: string, savedPath?: string }} PhotoResult
+ * @typedef {{ ok: boolean, seen: boolean, ready: boolean, cue: string | null, message: string, savedPath?: string }} PhotoResult
  */
 
 /**
@@ -35,18 +46,19 @@ function normalizeCue(cue) {
 
 /**
  * @param {string} text
- * @returns {{ seen: boolean, cue: string | null }}
+ * @returns {{ seen: boolean, ready: boolean, cue: string | null }}
  */
 export function resultFromVisionText(text) {
   const match = String(text ?? '').match(/\{[\s\S]*\}/);
-  if (!match) return { seen: false, cue: null };
+  if (!match) return { seen: false, ready: false, cue: null };
   try {
     const parsed = JSON.parse(match[0]);
     const cue = normalizeCue(parsed?.cue);
     const seen = parsed?.seen === true || Boolean(cue);
-    return { seen, cue: seen ? cue : null };
+    const ready = seen && parsed?.ready === true;
+    return { seen, ready, cue: seen ? cue : null };
   } catch {
-    return { seen: false, cue: null };
+    return { seen: false, ready: false, cue: null };
   }
 }
 
@@ -220,7 +232,29 @@ export async function saveCapturePng(bytes, options = {}) {
 }
 
 /**
+ * Encode and save a frame as a timestamped PNG. Does not call vision.
+ * @param {VideoFrame} frame
+ * @param {{ captureDir?: string, at?: Date }} [options]
+ * @returns {Promise<{ ok: boolean, savedPath?: string, message: string, bytes?: Buffer }>}
+ */
+export async function saveFrameCapture(frame, options = {}) {
+  const encoded = await encodeFramePng(frame);
+  if (!encoded) {
+    return { ok: false, message: 'Could not encode the camera frame.' };
+  }
+  try {
+    const savedPath = await saveCapturePng(encoded.bytes, { dir: options.captureDir, at: options.at });
+    return { ok: true, savedPath, message: 'Capture saved.', bytes: encoded.bytes };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn('[caller-vision] could not save capture', message);
+    return { ok: false, message: `Could not save capture: ${message}`, bytes: encoded.bytes };
+  }
+}
+
+/**
  * Ask the vision model for one coaching cue from a camera frame.
+ * Cheese snaps should save via saveFrameCapture first — do not wait on this for the shutter.
  * @param {VideoFrame} frame
  * @param {{ apiKey?: string, model?: string, fetchImpl?: typeof fetch, save?: boolean, captureDir?: string }} [options]
  * @returns {Promise<PhotoResult>}
@@ -230,17 +264,7 @@ export async function takePhotoFromFrame(frame, options = {}) {
   if (!apiKey) throw new Error('XAI_API_KEY is missing');
   const encoded = await encodeFramePng(frame);
   if (!encoded) {
-    return { ok: false, seen: false, cue: null, message: 'Could not encode the camera frame.' };
-  }
-
-  /** @type {string | undefined} */
-  let savedPath;
-  if (options.save !== false) {
-    try {
-      savedPath = await saveCapturePng(encoded.bytes, { dir: options.captureDir });
-    } catch (error) {
-      console.warn('[caller-vision] could not save capture', error instanceof Error ? error.message : error);
-    }
+    return { ok: false, seen: false, ready: false, cue: null, message: 'Could not encode the camera frame.' };
   }
 
   const response = await (options.fetchImpl ?? fetch)(VISION_URL, {
@@ -268,25 +292,36 @@ export async function takePhotoFromFrame(frame, options = {}) {
     throw new Error(`vision request failed (${response.status}): ${message}`);
   }
 
-  const { seen, cue } = resultFromVisionText(visionOutputText(payload));
+  const { seen, ready, cue } = resultFromVisionText(visionOutputText(payload));
+  /** @type {string | undefined} */
+  let savedPath;
+  // Cheese snaps save via saveFrameCapture before vision. Pass save: false for analyze-only.
+  if (options.save !== false && seen) {
+    try {
+      savedPath = await saveCapturePng(encoded.bytes, { dir: options.captureDir });
+    } catch (error) {
+      console.warn('[caller-vision] could not save capture', error instanceof Error ? error.message : error);
+    }
+  }
   if (!seen) {
     return {
       ok: true,
       seen: false,
+      ready: false,
       cue: null,
-      message: 'Photo taken, but no person was clearly visible. Ask them to step back, face the camera, and try again.',
+      message: 'No person was clearly visible. Do not treat this as a taken photo.',
       savedPath,
     };
   }
   return {
     ok: true,
     seen: true,
+    ready,
     cue,
-    message: cue ?? 'Photo taken. The caller looks ready.',
+    message: cue ?? (ready ? 'You look lined up and ready.' : 'Pose checked.'),
     savedPath,
   };
 }
-
 /**
  * @param {VideoFrame} frame
  * @param {{ apiKey?: string, model?: string, fetchImpl?: typeof fetch }} [options]
