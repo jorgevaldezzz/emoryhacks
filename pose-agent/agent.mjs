@@ -1,5 +1,4 @@
 import { fileURLToPath } from 'node:url';
-import { readFile } from 'node:fs/promises';
 import { AutoSubscribe, cli, defineAgent, llm, ServerOptions, voice } from '@livekit/agents';
 import * as xai from '@livekit/agents-plugin-xai';
 import { LocalVideoTrack, TrackSource, VideoBufferType, VideoFrame, VideoSource } from '@livekit/rtc-node';
@@ -7,6 +6,7 @@ import { encodeFramePng, saveFrameCapture, takePhotoFromFrame, watchCallerCamera
 import { drawFace, FPS, HEIGHT, WIDTH } from './face.mjs';
 import { cropFacetimeFrame, frameToAgentRgba } from './frame_display.mjs';
 import { greetOnBridgeReady } from './greet.mjs';
+import { loadReferenceImage } from './reference_pose.mjs';
 import { createPoseMatcher, extractPoseFromImage } from '../pose-matcher/src/index.mjs';
 
 const LOOK_EVERY_MS = 8_000;
@@ -17,15 +17,15 @@ const REPLAY_FRAMES = Math.round(FPS * 4);
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-// Silent looks compare pose internally. Cheese snaps immediately — vision never blocks the shutter.
+// Silent looks and guide_pose coach toward the loaded reference image — never the arms-out scaffold.
 const instructions = `You are a pose coach on a FaceTime video call. The caller sees your AI face.
 Always speak English only. Never switch languages.
 When you get a pose cue, say "Okay" then only that body tip in one short sentence. Never say you are looking at, checking, reviewing, or going back to an image, photo, snapshot, or camera frame.
 If a cue says they look ready, tell them they are ready and can say cheese.
 When they say cheese (or clearly confirm a photo now), call take_photo immediately with no spoken preamble before the tool.
 After a real photo, acknowledge briefly that you took it and ask if they want another. If yes, tell them to say cheese when ready.
-If they ask for guidance, call guide_pose and say "Okay" then only that cue.
-If they explicitly ask to compare their pose with the reference photo, call match_reference_pose and say only its feedback.
+If they ask for guidance, help posing, how to line up, or to match the target/reference pose, call guide_pose and say "Okay" then only that cue.
+If they ask to score or compare against the reference, call match_reference_pose when available and say only its feedback.
 Never invent a correction that was not in a cue. Never mention files, messaging, or skeletons.
 Be clear that you are an AI.`;
 const greeting = 'Greet in one short English sentence: say they can ask for guidance, you will help them match the target pose, and to say cheese for a three-two-one countdown before a photo.';
@@ -77,20 +77,23 @@ export default defineAgent({
     });
     session.on(voice.AgentSessionEventTypes.AgentStateChanged, event => { speaking = event.newState === 'speaking'; });
 
-    // Optional caller-provided target: the local development image is loaded
-    // once; comparison remains independent of the internal skeleton guide.
+    // Load the development reference from POSE_REFERENCE_IMAGE or reference-images/.
+    // All coaching (silent looks + guide_pose) targets that pose, not the sample scaffold.
+    /** @type {string | null} */
+    let referenceImage = null;
     let poseMatcher;
-    if (process.env.POSE_REFERENCE_IMAGE) {
-      try {
-        const bytes = await readFile(process.env.POSE_REFERENCE_IMAGE);
-        const extension = process.env.POSE_REFERENCE_IMAGE.toLowerCase().split('.').at(-1);
-        const mime = extension === 'png' ? 'image/png' : extension === 'webp' ? 'image/webp' : 'image/jpeg';
+    try {
+      const loaded = await loadReferenceImage();
+      if (loaded) {
+        referenceImage = loaded.dataUrl;
         poseMatcher = createPoseMatcher({ extractPose: image => extractPoseFromImage(image) });
-        await poseMatcher.setReference(`data:${mime};base64,${bytes.toString('base64')}`);
-        console.log('[pose-matcher] reference pose ready');
-      } catch (error) {
-        console.warn('[pose-matcher] reference pose unavailable', error instanceof Error ? error.message : error);
+        await poseMatcher.setReference(loaded.dataUrl);
+        console.log(`[pose-matcher] reference pose ready from ${loaded.path}`);
+      } else {
+        console.warn('[pose-matcher] no reference image in POSE_REFERENCE_IMAGE or reference-images/');
       }
+    } catch (error) {
+      console.warn('[pose-matcher] reference pose unavailable', error instanceof Error ? error.message : error);
     }
 
     const latestCropped = () => {
@@ -99,13 +102,16 @@ export default defineAgent({
       return cropFacetimeFrame(photo);
     };
 
+    /** Analyze the caller against the loaded reference pose (never the arms-out scaffold). */
+    const analyzePose = (cropped) => takePhotoFromFrame(cropped, { save: false, referenceImage });
+
     /**
      * Analyze-only pose check. Never used to gate the cheese shutter.
      * @param {import('@livekit/rtc-node').VideoFrame} cropped
      */
     const readyCheck = async (cropped) => {
       if (lastReady && Date.now() - lastReady.at < READY_TTL_MS) return lastReady;
-      const result = await takePhotoFromFrame(cropped, { save: false });
+      const result = await analyzePose(cropped);
       lastReady = { at: Date.now(), seen: result.seen, ready: result.ready, cue: result.cue };
       return lastReady;
     };
@@ -123,7 +129,7 @@ export default defineAgent({
       /** @type {{ seen: boolean, ready: boolean, cue: string | null }} */
       let analysis = { seen: true, ready: false, cue: null };
       try {
-        const result = await takePhotoFromFrame(cropped, { save: false });
+        const result = await analyzePose(cropped);
         analysis = { seen: result.seen, ready: result.ready, cue: result.cue };
         lastReady = { at: Date.now(), ...analysis };
       } catch (error) {
@@ -143,7 +149,11 @@ export default defineAgent({
      * @param {import('@livekit/rtc-node').VideoFrame} cropped
      */
     const silentLook = async (cropped) => {
-      const result = await takePhotoFromFrame(cropped, { save: false });
+      if (!referenceImage) {
+        console.log('[caller-vision] silent look skipped: no reference image');
+        return { ok: false, seen: false, ready: false, cue: null, message: 'No reference pose loaded.' };
+      }
+      const result = await analyzePose(cropped);
       lastReady = { at: Date.now(), seen: result.seen, ready: result.ready, cue: result.cue };
       if (!result.seen) {
         console.log('[caller-vision] silent look: nobody in frame');
@@ -173,9 +183,12 @@ export default defineAgent({
         instructions,
         tools: {
           guide_pose: llm.tool({
-            description: 'Compare the caller to the internal target pose and return one short guidance cue. Use when they ask for guidance, help posing, or how to line up.',
+            description: 'Compare the caller to the loaded reference pose and return one short guidance cue. Use when they ask for guidance, help posing, how to line up, or to match the target pose.',
             execute: async () => {
               if (busy) return { ok: false, message: 'Already working. Wait a moment.' };
+              if (!referenceImage) {
+                return { ok: false, message: 'Speak English only. Say you need a reference pose in reference-images before you can guide them.' };
+              }
               const cropped = latestCropped();
               if (!cropped) {
                 return { ok: false, message: 'No camera frame yet. Ask them to keep FaceTime Video on.' };
@@ -257,7 +270,7 @@ export default defineAgent({
           }),
           ...(poseMatcher ? {
             match_reference_pose: llm.tool({
-              description: 'Compare the caller pose now with the configured uploaded reference photo. Use only when the caller asks for comparison against the reference photo, not for general coaching.',
+              description: 'Score the caller against the loaded reference pose with landmark angles. Use when they ask for a score or a reference comparison; prefer guide_pose for normal coaching tips.',
               execute: async () => {
                 if (busy) return { ok: false, message: 'Already working. Wait a moment.' };
                 const cropped = latestCropped();

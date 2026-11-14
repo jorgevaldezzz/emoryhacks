@@ -3,9 +3,8 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { llm } from '@livekit/agents';
-import { RoomEvent, TrackKind, TrackSource, VideoFrame, VideoStream } from '@livekit/rtc-node';
-import { describeSampleSkeleton } from './skeleton.mjs';
+import sharp from 'sharp';
+import { RoomEvent, TrackKind, TrackSource, VideoBufferType, VideoFrame, VideoStream } from '@livekit/rtc-node';
 
 const CALLER_TRACK = 'facetime-remote-video';
 const VISION_URL = 'https://api.x.ai/v1/responses';
@@ -13,22 +12,32 @@ const DEFAULT_MODEL = 'grok-4.7';
 const CAPTURE_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), 'captures');
 
 /**
- * Build the vision prompt. The sample skeleton is an internal target only — the
- * caller never sees it; estimate their pose from this photo and compare.
- * @param {string} [targetPose]
+ * Build the vision prompt. When a reference image is attached, coach toward that
+ * pose — never toward the old arms-out sample scaffold.
+ * @param {{ hasReference?: boolean }} [options]
  */
-export function buildVisionPrompt(targetPose = describeSampleSkeleton()) {
-  return `Estimate the caller's body pose from this FaceTime frame (head, shoulders, elbows, wrists, hips, knees, ankles).
-Compare that pose to this INTERNAL target (they cannot see it): ${targetPose}
-Reply with JSON only, no markdown: {"seen": false, "ready": false, "cue": null} or {"seen": true, "ready": false|true, "cue": "<one short English coaching tip>"}.
+export function buildVisionPrompt(options = {}) {
+  const hasReference = options.hasReference === true;
+  if (!hasReference) {
+    return `Estimate whether a person is clearly visible in this FaceTime frame.
+Reply with JSON only, no markdown: {"seen": false, "ready": false, "cue": null} or {"seen": true, "ready": false, "cue": "<one short English tip>"}.
 Set seen to true when a person is clearly visible.
-Set ready to true only when their pose closely matches the target. Otherwise ready is false.
-When seen is true, cue must be ONLY a body correction or readiness line — for example "Raise your left arm a bit." or "You look ready — say cheese when you want the shot."
+ready must always be false when no reference pose is configured.
+When seen is true, cue must tell them a reference pose still needs to be set before you can coach alignment — for example "I need the target pose loaded before I can guide you."
+Never mention photos, images, snapshots, cameras, files, folders, messaging, or skeletons. Never write Spanish or any language other than English.
+When seen is false (blank, dark, camera off, no person), ready must be false and cue must be null.`;
+  }
+  return `The FIRST image is the TARGET reference pose. The SECOND image is the caller on FaceTime.
+Estimate both body poses (head, shoulders, elbows, wrists, hips, knees, ankles).
+Coach the caller to match the reference pose — ignore any default standing or arms-out scaffold.
+Reply with JSON only, no markdown: {"seen": false, "ready": false, "cue": null} or {"seen": true, "ready": false|true, "cue": "<one short English coaching tip>"}.
+Set seen to true when a person is clearly visible in the caller frame.
+Set ready to true only when their pose closely matches the reference. Otherwise ready is false.
+When seen is true, cue must be ONLY one specific body correction toward the reference — for example "Raise your left elbow higher." or "Shift your weight onto your right leg." — or a readiness line if they match: "You look ready — say cheese when you want the shot."
+Do not give generic praise like "you look good" or "stand up" unless that is the exact mismatch.
 Never mention photos, images, snapshots, cameras, files, folders, messaging, skeletons on screen, or that you are looking/checking/reviewing anything. Never write Spanish or any language other than English.
 When seen is false (blank, dark, camera off, no person), ready must be false and cue must be null.`;
 }
-
-const VISION_PROMPT = buildVisionPrompt();
 
 /**
  * @typedef {{ ok: boolean, seen: boolean, ready: boolean, cue: string | null, message: string, savedPath?: string }} PhotoResult
@@ -198,21 +207,36 @@ export function watchCallerCamera(room, caller) {
 
 /**
  * Encode a camera frame as PNG bytes for vision or disk.
+ * Preserves aspect ratio. Never force a square — that was squashing cheese snaps
+ * after the FaceTime chrome crop. Optional maxSide only downscales with fit:inside.
  * @param {VideoFrame} frame
- * @returns {Promise<{ base64Data: string, bytes: Buffer } | null>}
+ * @param {{ maxSide?: number }} [options]
+ * @returns {Promise<{ base64Data: string, bytes: Buffer, width: number, height: number } | null>}
  */
-export async function encodeFramePng(frame) {
-  const serialized = await llm.serializeImage(llm.createImageContent({
-    image: frame,
-    inferenceDetail: 'low',
-    inferenceWidth: 512,
-    inferenceHeight: 512,
-    mimeType: 'image/png',
-  }));
-  if (!serialized.base64Data) return null;
+export async function encodeFramePng(frame, options = {}) {
+  const rgba = frame.type === VideoBufferType.RGBA ? frame : frame.convert(VideoBufferType.RGBA);
+  if (!rgba?.data?.length || !rgba.width || !rgba.height) return null;
+
+  let pipeline = sharp(Buffer.from(rgba.data), {
+    raw: { width: rgba.width, height: rgba.height, channels: 4 },
+  });
+  const maxSide = options.maxSide;
+  if (Number.isFinite(maxSide) && maxSide > 0) {
+    pipeline = pipeline.resize({
+      width: maxSide,
+      height: maxSide,
+      fit: 'inside',
+      withoutEnlargement: true,
+    });
+  }
+
+  const bytes = await pipeline.png().toBuffer();
+  const meta = await sharp(bytes).metadata();
   return {
-    base64Data: serialized.base64Data,
-    bytes: Buffer.from(serialized.base64Data, 'base64'),
+    base64Data: bytes.toString('base64'),
+    bytes,
+    width: meta.width ?? rgba.width,
+    height: meta.height ?? rgba.height,
   };
 }
 
@@ -233,18 +257,26 @@ export async function saveCapturePng(bytes, options = {}) {
 
 /**
  * Encode and save a frame as a timestamped PNG. Does not call vision.
+ * Saves at the frame's native cropped aspect — no square stretch.
  * @param {VideoFrame} frame
- * @param {{ captureDir?: string, at?: Date }} [options]
- * @returns {Promise<{ ok: boolean, savedPath?: string, message: string, bytes?: Buffer }>}
+ * @param {{ captureDir?: string, at?: Date, maxSide?: number }} [options]
+ * @returns {Promise<{ ok: boolean, savedPath?: string, message: string, bytes?: Buffer, width?: number, height?: number }>}
  */
 export async function saveFrameCapture(frame, options = {}) {
-  const encoded = await encodeFramePng(frame);
+  const encoded = await encodeFramePng(frame, { maxSide: options.maxSide });
   if (!encoded) {
     return { ok: false, message: 'Could not encode the camera frame.' };
   }
   try {
     const savedPath = await saveCapturePng(encoded.bytes, { dir: options.captureDir, at: options.at });
-    return { ok: true, savedPath, message: 'Capture saved.', bytes: encoded.bytes };
+    return {
+      ok: true,
+      savedPath,
+      message: 'Capture saved.',
+      bytes: encoded.bytes,
+      width: encoded.width,
+      height: encoded.height,
+    };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.warn('[caller-vision] could not save capture', message);
@@ -255,17 +287,33 @@ export async function saveFrameCapture(frame, options = {}) {
 /**
  * Ask the vision model for one coaching cue from a camera frame.
  * Cheese snaps should save via saveFrameCapture first — do not wait on this for the shutter.
+ * Pass referenceImage (data URL) so coaching targets that pose instead of any scaffold.
  * @param {VideoFrame} frame
- * @param {{ apiKey?: string, model?: string, fetchImpl?: typeof fetch, save?: boolean, captureDir?: string }} [options]
+ * @param {{ apiKey?: string, model?: string, fetchImpl?: typeof fetch, save?: boolean, captureDir?: string, referenceImage?: string | null, visionPrompt?: string }} [options]
  * @returns {Promise<PhotoResult>}
  */
 export async function takePhotoFromFrame(frame, options = {}) {
   const apiKey = options.apiKey ?? process.env.XAI_API_KEY;
   if (!apiKey) throw new Error('XAI_API_KEY is missing');
-  const encoded = await encodeFramePng(frame);
+  // Downscale for vision only — fit:inside keeps aspect (never 512x512 stretch).
+  const encoded = await encodeFramePng(frame, { maxSide: options.maxSide ?? 1024 });
   if (!encoded) {
     return { ok: false, seen: false, ready: false, cue: null, message: 'Could not encode the camera frame.' };
   }
+
+  const referenceImage = typeof options.referenceImage === 'string' && options.referenceImage.startsWith('data:')
+    ? options.referenceImage
+    : null;
+  const prompt = options.visionPrompt ?? buildVisionPrompt({ hasReference: Boolean(referenceImage) });
+  /** @type {Array<{ type: string, image_url?: string, detail?: string, text?: string }>} */
+  const content = [];
+  if (referenceImage) {
+    content.push({ type: 'input_image', image_url: referenceImage, detail: 'high' });
+  }
+  content.push(
+    { type: 'input_image', image_url: `data:image/png;base64,${encoded.base64Data}`, detail: 'low' },
+    { type: 'input_text', text: prompt },
+  );
 
   const response = await (options.fetchImpl ?? fetch)(VISION_URL, {
     method: 'POST',
@@ -276,13 +324,7 @@ export async function takePhotoFromFrame(frame, options = {}) {
     body: JSON.stringify({
       model: options.model ?? process.env.XAI_VISION_MODEL ?? DEFAULT_MODEL,
       store: false,
-      input: [{
-        role: 'user',
-        content: [
-          { type: 'input_image', image_url: `data:image/png;base64,${encoded.base64Data}`, detail: 'low' },
-          { type: 'input_text', text: VISION_PROMPT },
-        ],
-      }],
+      input: [{ role: 'user', content }],
     }),
     signal: AbortSignal.timeout(20_000),
   });
@@ -316,7 +358,7 @@ export async function takePhotoFromFrame(frame, options = {}) {
   return {
     ok: true,
     seen: true,
-    ready,
+    ready: referenceImage ? ready : false,
     cue,
     message: cue ?? (ready ? 'You look lined up and ready.' : 'Pose checked.'),
     savedPath,

@@ -54,11 +54,13 @@ publishes an audio track, and shows video **only from that same participant**.
 ## Caller vision
 
 You see the animated AI face on FaceTime. About every eight seconds the agent
-silently estimates your pose, compares it to an internal sample skeleton, and
-may coach you — or tell you when you look ready. Those checks never flash or
+silently compares your pose to the loaded reference image in `reference-images/`
+(or `POSE_REFERENCE_IMAGE`) and may coach you — or tell you when you look ready.
+It does not use the old arms-out sample scaffold. Those checks never flash or
 preview a still. Say **cheese** for an immediate 3-2-1: shutter flash, still on
 FaceTime, and a timestamped PNG in `captures/` — vision tips run after the snap
-so they never delay the photo.
+so they never delay the photo. Snaps keep the cropped camera aspect (no square
+stretch); the on-call preview letterboxes instead of smooshing the still.
 
 ## Change the picture
 
@@ -93,23 +95,18 @@ FaceTime call by Chert yet: watch the media line in `chert dev` on your first ca
   model key or the media path. The first call does.
 - Never commit or share `.env.local`. LiveKit and model usage may cost money.
 
-## Compare against a reference pose
+## Reference pose coaching
 
-The independent `../pose-matcher/` package is exposed as an opt-in
-`match_reference_pose` tool, separate from the agent's built-in `guide_pose`.
-The current development reference is stored in `reference-images/`. To use a
-different image, set its absolute path in `.env.local`:
+Put a development reference photo in `reference-images/` (gitignored), or set an
+absolute path in `.env.local`:
 
 ```sh
 POSE_REFERENCE_IMAGE=/absolute/path/to/reference.jpg
 ```
 
-Restart both `npm start` and `chert dev`, then ask the agent to compare your pose
-with the reference photo. It compares the reference with the newest caller-camera
-frame and speaks one short cue. It does not check automatically; the caller asks
-for each comparison.
-The reference image and caller frame are sent to xAI vision for landmark
-extraction (`store: false`). Only pose landmarks and correction text are passed
-to the voice session. The comparison is approximate, especially when joints are
-occluded or perspective makes left and right ambiguous. See
-[`../pose-matcher/README.md`](../pose-matcher/README.md).
+Restart both `npm start` and `chert dev`. Silent looks and `guide_pose` send that
+reference image plus the newest caller frame to xAI vision and speak one body tip
+toward matching it. `match_reference_pose` is the separate landmark-angle score
+from `../pose-matcher/`. Vision and landmark extraction use `store: false`. The
+comparison is approximate when joints are occluded or left/right is ambiguous.
+See [`../pose-matcher/README.md`](../pose-matcher/README.md).

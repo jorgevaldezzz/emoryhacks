@@ -71,8 +71,10 @@
 
 ## Future pose reference uploads
 
-The current `POSE_REFERENCE_IMAGE` setting points to a local file for development.
-Replace this with a caller-upload flow later: accept a reference image through the
-Chert experience, validate and store it only for that call/session, then run
-`setReference()` on the pose matcher. Do not hard-code a developer-specific path
-or commit uploaded images or credentials.
+Development loads a local reference from `POSE_REFERENCE_IMAGE` or the first
+image in `reference-images/` and uses it for `guide_pose` / silent looks plus
+`match_reference_pose`. Replace this with a caller-upload flow later: accept a
+reference image through the Chert experience, validate and store it only for
+that call/session, then run `setReference()` on the pose matcher and pass the
+same image into vision coaching. Do not hard-code a developer-specific path or
+commit uploaded images or credentials.
