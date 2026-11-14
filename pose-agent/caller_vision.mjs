@@ -71,9 +71,16 @@ function publicationRank(publication) {
  * @param {import('@livekit/rtc-node').RemoteParticipant | undefined} participant
  * @returns {import('@livekit/rtc-node').RemoteTrackPublication | undefined}
  */
+function publicationList(participant) {
+  const publications = participant?.trackPublications;
+  if (!publications) return [];
+  if (typeof publications.values === 'function') return [...publications.values()];
+  return Object.values(publications);
+}
+
 function callerVideoPublication(participant) {
-  if (!participant) return undefined;
-  const videos = [...participant.trackPublications.values()].filter(publication => publication.kind === TrackKind.KIND_VIDEO);
+  if (!participant || typeof participant === 'string') return undefined;
+  const videos = publicationList(participant).filter(publication => publication?.kind === TrackKind.KIND_VIDEO);
   videos.sort((a, b) => publicationRank(a) - publicationRank(b));
   return /** @type {import('@livekit/rtc-node').RemoteTrackPublication | undefined} */ (videos[0]);
 }
@@ -84,7 +91,8 @@ function callerVideoPublication(participant) {
  * @param {import('@livekit/rtc-node').RemoteParticipant} caller
  */
 export function watchCallerCamera(room, caller) {
-  const identity = caller.identity;
+  const identity = typeof caller === 'string' ? caller : caller?.identity;
+  const initial = typeof caller === 'string' ? room.remoteParticipants?.get(caller) : caller;
   /** @type {VideoFrame | null} */
   let latest = null;
   /** @type {ReadableStreamDefaultReader<import('@livekit/rtc-node').VideoFrameEvent> | null} */
@@ -94,7 +102,13 @@ export function watchCallerCamera(room, caller) {
   const abort = new AbortController();
 
   const pump = async (track, generationId) => {
-    const stream = new VideoStream(track);
+    let stream;
+    try {
+      stream = new VideoStream(track);
+    } catch (error) {
+      console.warn('[caller-vision] could not open camera stream', error instanceof Error ? error.message : error);
+      return;
+    }
     const next = stream.getReader();
     reader = next;
     try {
@@ -128,7 +142,7 @@ export function watchCallerCamera(room, caller) {
 
   room.on(RoomEvent.TrackSubscribed, onSubscribed);
   room.on(RoomEvent.TrackPublished, onPublished);
-  attach(caller);
+  if (initial) attach(initial);
 
   return {
     /** @returns {VideoFrame | null} */
