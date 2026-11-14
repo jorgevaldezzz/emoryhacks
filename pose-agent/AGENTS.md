@@ -68,3 +68,11 @@
 - `clock`: Calls declined over timing: set the date and time automatically.
 - `anything else`: Run chert doctor. Each failed check says what to fix.
 <!-- chert:end -->
+
+## Future pose reference uploads
+
+The current `POSE_REFERENCE_IMAGE` setting points to a local file for development.
+Replace this with a caller-upload flow later: accept a reference image through the
+Chert experience, validate and store it only for that call/session, then run
+`setReference()` on the pose matcher. Do not hard-code a developer-specific path
+or commit uploaded images or credentials.
