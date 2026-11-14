@@ -20,7 +20,7 @@ typesense/
 │   └── geo.mjs            distance, bearing, compass
 ├── scripts/               create-collection, seed-from-osm, import-curated, …
 ├── data/curated/          hand-picked spots (JSONL, committed)
-└── test/                  44 tests, no server needed
+└── test/                  50 tests, no server needed
 ```
 
 > Written as `.mjs`, not the `.ts` in the original sketch, to match
@@ -198,7 +198,7 @@ else — writes come back 401.
 ## Tests
 
 ```sh
-npm test     # 44 tests: geo maths, OSM normalization, query building, search behaviour
+npm test     # 50 tests: geo maths, OSM normalization, query building, search behaviour
 npm run check  # syntax only
 ```
 

@@ -50,13 +50,17 @@ export function parseNodes(urls = DEFAULT_URL) {
   });
 }
 
-function build({ apiKey, url, timeoutSeconds, retries }) {
+function build({ apiKey, url, timeoutSeconds, retries, logLevel }) {
   return new Client({
     nodes: parseNodes(url),
     apiKey,
     connectionTimeoutSeconds: timeoutSeconds,
     numRetries: retries,
     retryIntervalSeconds: 0.2,
+    // The client narrates every retry on stdout by default. This runs inside a
+    // live voice call, so keep it quiet: we report failures ourselves, through
+    // the return value of findNearbySpots.
+    logLevel: logLevel ?? 'error',
   });
 }
 
@@ -67,28 +71,28 @@ function build({ apiKey, url, timeoutSeconds, retries }) {
  * Short timeout on purpose: this sits inside a live voice call, where a slow
  * answer is worse than no answer.
  */
-export function searchClient({ env = process.env, timeoutSeconds = 3, retries = 1 } = {}) {
+export function searchClient({ env = process.env, timeoutSeconds = 3, retries = 1, logLevel } = {}) {
   const apiKey = env.TYPESENSE_SEARCH_KEY || env.TYPESENSE_ADMIN_KEY;
   if (!apiKey) {
     throw new ConfigError(
       'No Typesense key. Set TYPESENSE_SEARCH_KEY (or TYPESENSE_ADMIN_KEY) in .env.local.',
     );
   }
-  return build({ apiKey, url: env.TYPESENSE_URL || DEFAULT_URL, timeoutSeconds, retries });
+  return build({ apiKey, url: env.TYPESENSE_URL || DEFAULT_URL, timeoutSeconds, retries, logLevel });
 }
 
 /**
  * Read-write client for the seeding scripts. Admin key only, never the search
  * key, and never from browser code.
  */
-export function adminClient({ env = process.env, timeoutSeconds = 30, retries = 2 } = {}) {
+export function adminClient({ env = process.env, timeoutSeconds = 30, retries = 2, logLevel = 'warn' } = {}) {
   const apiKey = env.TYPESENSE_ADMIN_KEY;
   if (!apiKey) {
     throw new ConfigError(
       'TYPESENSE_ADMIN_KEY is not set. Copy .env.example to .env.local and fill it in.',
     );
   }
-  return build({ apiKey, url: env.TYPESENSE_URL || DEFAULT_URL, timeoutSeconds, retries });
+  return build({ apiKey, url: env.TYPESENSE_URL || DEFAULT_URL, timeoutSeconds, retries, logLevel });
 }
 
 /** True when the error means "that collection does not exist yet". */
