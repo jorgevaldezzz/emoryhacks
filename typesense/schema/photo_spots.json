@@ -1,0 +1,28 @@
+{
+  "name": "photo_spots",
+  "default_sorting_field": "quality",
+  "fields": [
+    { "name": "name", "type": "string" },
+    { "name": "description", "type": "string", "optional": true },
+
+    { "name": "category", "type": "string", "facet": true },
+    { "name": "tags", "type": "string[]", "facet": true, "optional": true },
+
+    { "name": "location", "type": "geopoint" },
+    { "name": "city", "type": "string", "facet": true, "optional": true },
+
+    { "name": "direction", "type": "int32", "optional": true },
+
+    { "name": "best_time", "type": "string", "facet": true, "optional": true },
+    { "name": "tips", "type": "string[]", "optional": true },
+    { "name": "indoor", "type": "bool", "facet": true, "optional": true },
+
+    { "name": "source", "type": "string", "facet": true },
+    { "name": "osm_id", "type": "string", "optional": true, "index": false },
+    { "name": "website", "type": "string", "optional": true, "index": false },
+    { "name": "image", "type": "string", "optional": true, "index": false },
+
+    { "name": "quality", "type": "int32" },
+    { "name": "updated_at", "type": "int64" }
+  ]
+}
