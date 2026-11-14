@@ -99,4 +99,8 @@ export default defineAgent({
 cli.runApp(new ServerOptions({
   agent: fileURLToPath(import.meta.url),
   agentName: process.env.AGENT_NAME || 'video-agent',
+  // npm start prewarms a child process that must import this folder before it can take a call.
+  // The default 10s limit expires when the project lives on /mnt/c in WSL. One child, two minutes.
+  numIdleProcesses: 1,
+  initializeProcessTimeout: 120_000,
 }));
