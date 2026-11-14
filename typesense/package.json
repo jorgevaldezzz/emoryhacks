@@ -1,0 +1,31 @@
+{
+  "name": "@emoryhacks/typesense",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Photo-spot search: a Typesense collection, OSM seeding, and searchNearby() for the pose agent.",
+  "type": "module",
+  "engines": {
+    "node": "^22.23.2 || ^24.0.0 || ^26.0.0"
+  },
+  "main": "./src/search.mjs",
+  "exports": {
+    ".": "./src/search.mjs",
+    "./client": "./src/client.mjs",
+    "./geo": "./src/geo.mjs",
+    "./osm": "./src/osm.mjs"
+  },
+  "scripts": {
+    "up": "docker compose --env-file .env.local up -d",
+    "down": "docker compose --env-file .env.local down",
+    "collection": "node --env-file-if-exists=.env.local scripts/create-collection.mjs",
+    "seed:osm": "node --env-file-if-exists=.env.local scripts/seed-from-osm.mjs",
+    "seed:curated": "node --env-file-if-exists=.env.local scripts/import-curated.mjs",
+    "search-key": "node --env-file-if-exists=.env.local scripts/create-search-key.mjs",
+    "query": "node --env-file-if-exists=.env.local scripts/query.mjs",
+    "check": "node --check src/client.mjs && node --check src/geo.mjs && node --check src/osm.mjs && node --check src/search.mjs && node --check scripts/_cli.mjs && node --check scripts/_import.mjs && node --check scripts/create-collection.mjs && node --check scripts/create-search-key.mjs && node --check scripts/import-curated.mjs && node --check scripts/query.mjs && node --check scripts/seed-from-osm.mjs",
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "typesense": "^3.2.0"
+  }
+}
