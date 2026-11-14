@@ -1,6 +1,7 @@
-// Internal sample reference pose used only for comparing silent looks / guidance.
+// Legacy sample stick figure kept for offline drawing tests only.
+// Live coaching no longer uses this scaffold — guide_pose and silent looks
+// target the loaded reference image in reference-images/ instead.
 // Not drawn on FaceTime — the caller sees the AI face, not this stick figure.
-// Standing portrait: head, torso, arms slightly out, feet planted.
 
 const INK = [236, 244, 248];
 const JOINT = [255, 200, 118];
