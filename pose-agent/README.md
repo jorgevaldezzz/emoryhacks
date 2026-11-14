@@ -51,19 +51,13 @@ publishes an audio track, and shows video **only from that same participant**.
 - Two participants publishing audio ends the call.
 - Video from a participant that does not speak is not shown.
 
-## Take a photo (test path)
+## Caller vision
 
-Camera watch stays on for the eventual auto-snap (match the reference skeleton,
-countdown, then capture without asking). For now, say **take a photo** on the
-call. The agent:
-
-1. Grabs one FaceTime frame (same capture path the auto-snap will use)
-2. Shows that frame on its video for a few seconds
-3. Texts it back over iMessage when messaging credentials are set
-
-Set `PHOTO_RECIPIENT` and `CHERT_SIGNING_SECRET` in `.env.local` to attach the
-PNG. Without the signing secret, Shared text credentials can still send a note.
-The last capture is always written to `captures/last.png`.
+The agent watches the FaceTime camera and takes a photo about every eight
+seconds. Each photo is saved to `captures/last.png`, sent to the vision model,
+and turned into one short spoken cue (smile, turn away, framing, and so on).
+Say **take a photo** to force a snap and briefly show that frame on the agent's
+video. Later this same capture path will drive skeleton match and countdown.
 
 ## Change the picture
 

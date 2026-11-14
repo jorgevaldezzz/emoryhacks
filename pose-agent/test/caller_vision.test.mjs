@@ -16,8 +16,8 @@ import { drawFace } from '../face.mjs';
 describe('resultFromVisionText', () => {
   it('reads seen and cue from JSON', () => {
     assert.deepEqual(
-      resultFromVisionText('{"seen": true, "cue": "  Step back a little.  "}'),
-      { seen: true, cue: 'Step back a little.' },
+      resultFromVisionText('{"seen": true, "cue": "  You are smiling at the camera.  "}'),
+      { seen: true, cue: 'You are smiling at the camera.' },
     );
   });
 
@@ -82,14 +82,14 @@ describe('takePhotoFromFrame', () => {
         fetchImpl: async () => ({
           ok: true,
           json: async () => ({
-            output_text: '{"seen": true, "cue": "Take one step back."}',
+            output_text: '{"seen": true, "cue": "You just turned away from the camera."}',
           }),
         }),
       });
       assert.equal(result.ok, true);
       assert.equal(result.seen, true);
-      assert.equal(result.cue, 'Take one step back.');
-      assert.equal(result.message, 'Take one step back.');
+      assert.equal(result.cue, 'You just turned away from the camera.');
+      assert.equal(result.message, 'You just turned away from the camera.');
       assert.ok(result.savedPath?.endsWith('last.png'));
     } finally {
       await rm(dir, { recursive: true, force: true });
