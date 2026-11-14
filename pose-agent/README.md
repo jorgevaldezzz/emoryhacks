@@ -51,6 +51,14 @@ publishes an audio track, and shows video **only from that same participant**.
 - Two participants publishing audio ends the call.
 - Video from a participant that does not speak is not shown.
 
+## Take a photo on voice
+
+Say **take a photo** (or snap / check my pose / I am ready) on the call. The agent
+calls `take_photo`, grabs one frame from your FaceTime camera, asks the vision
+model for a short cue, and speaks that cue. The last capture is written to
+`captures/last.png` for debugging. A later step can add a countdown and a
+reference pose image on the agent's video track.
+
 ## Change the picture
 
 Edit `drawFace` in `face.mjs`. It returns one RGBA frame, 640 by 360, 15 times a
@@ -78,7 +86,8 @@ FaceTime call by Chert yet: watch the media line in `chert dev` on your first ca
 
 ## What it does not do
 
-- It does not look at the caller's camera.
+- It does not stream the caller's camera back as the agent picture (yet). The
+  caller still sees the animated face; photos are for coaching cues only.
 - The waiting room shows that the agent joined LiveKit. It does not verify the
   model key or the media path. The first call does.
 - Never commit or share `.env.local`. LiveKit and model usage may cost money.

@@ -1,0 +1,116 @@
+import assert from 'node:assert/strict';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { describe, it } from 'node:test';
+import { VideoBufferType, VideoFrame } from '@livekit/rtc-node';
+import {
+  cueFromVisionText,
+  encodeFramePng,
+  resultFromVisionText,
+  saveCapturePng,
+  takePhotoFromFrame,
+} from '../caller_vision.mjs';
+import { drawFace } from '../face.mjs';
+
+describe('resultFromVisionText', () => {
+  it('reads seen and cue from JSON', () => {
+    assert.deepEqual(
+      resultFromVisionText('{"seen": true, "cue": "  Step back a little.  "}'),
+      { seen: true, cue: 'Step back a little.' },
+    );
+  });
+
+  it('treats a cue without seen as visible', () => {
+    assert.deepEqual(
+      resultFromVisionText('Here you go: {"cue": "Raise your chin."}'),
+      { seen: true, cue: 'Raise your chin.' },
+    );
+  });
+
+  it('returns null cue when the person is not seen', () => {
+    assert.deepEqual(
+      resultFromVisionText('{"seen": false, "cue": null}'),
+      { seen: false, cue: null },
+    );
+  });
+});
+
+describe('cueFromVisionText', () => {
+  it('keeps the old helper working', () => {
+    assert.equal(cueFromVisionText('{"cue": "Square your shoulders."}'), 'Square your shoulders.');
+    assert.equal(cueFromVisionText('not json'), null);
+  });
+});
+
+describe('drawFace shutter', () => {
+  it('changes pixels when snapping', () => {
+    const idle = drawFace(0, false, false);
+    const snap = drawFace(0, false, true);
+    assert.notDeepEqual(idle, snap);
+  });
+});
+
+describe('encode and save capture', () => {
+  it('writes a PNG the vision path can reuse', async () => {
+    const frame = new VideoFrame(drawFace(3, false), 640, 360, VideoBufferType.RGBA);
+    const encoded = await encodeFramePng(frame);
+    assert.ok(encoded?.bytes?.length > 100);
+    assert.equal(encoded.bytes[0], 0x89);
+    assert.equal(encoded.bytes[1], 0x50);
+
+    const dir = await mkdtemp(path.join(tmpdir(), 'pose-capture-'));
+    try {
+      const saved = await saveCapturePng(encoded.bytes, { dir });
+      assert.equal(saved, path.join(dir, 'last.png'));
+      const roundTrip = await readFile(saved);
+      assert.deepEqual(roundTrip, encoded.bytes);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('takePhotoFromFrame', () => {
+  it('returns a spoken message when vision sees the caller', async () => {
+    const frame = new VideoFrame(drawFace(1, false), 640, 360, VideoBufferType.RGBA);
+    const dir = await mkdtemp(path.join(tmpdir(), 'pose-photo-'));
+    try {
+      const result = await takePhotoFromFrame(frame, {
+        apiKey: 'test-key',
+        captureDir: dir,
+        fetchImpl: async () => ({
+          ok: true,
+          json: async () => ({
+            output_text: '{"seen": true, "cue": "Take one step back."}',
+          }),
+        }),
+      });
+      assert.equal(result.ok, true);
+      assert.equal(result.seen, true);
+      assert.equal(result.cue, 'Take one step back.');
+      assert.equal(result.message, 'Take one step back.');
+      assert.ok(result.savedPath?.endsWith('last.png'));
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('explains when nobody is in frame', async () => {
+    const frame = new VideoFrame(drawFace(2, true), 640, 360, VideoBufferType.RGBA);
+    const result = await takePhotoFromFrame(frame, {
+      apiKey: 'test-key',
+      save: false,
+      fetchImpl: async () => ({
+        ok: true,
+        json: async () => ({
+          output: [{ content: [{ text: '{"seen": false, "cue": null}' }] }],
+        }),
+      }),
+    });
+    assert.equal(result.ok, true);
+    assert.equal(result.seen, false);
+    assert.equal(result.cue, null);
+    assert.match(result.message, /no person/i);
+  });
+});
