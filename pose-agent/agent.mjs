@@ -31,7 +31,7 @@ export default defineAgent({
     const timer = setInterval(frame, 1000 / FPS);
 
     const session = new voice.AgentSession({
-      llm: new xai.realtime.RealtimeModel({ voice: 'ara' }),
+      llm: new xai.realtime.RealtimeModel({ voice: 'leo' }),
     });
     session.on(voice.AgentSessionEventTypes.AgentStateChanged, event => { speaking = event.newState === 'speaking'; });
     ctx.addShutdownCallback(async () => {
