@@ -10,6 +10,7 @@ import {
   encodeFramePng,
   resultFromVisionText,
   saveCapturePng,
+  saveFrameCapture,
   takePhotoFromFrame,
 } from '../caller_vision.mjs';
 import { drawFace } from '../face.mjs';
@@ -73,9 +74,10 @@ describe('drawFace shutter', () => {
 describe('buildVisionPrompt', () => {
   it('asks for an internal skeleton compare and ready flag', () => {
     const prompt = buildVisionPrompt('standing sample');
-    assert.match(prompt, /INTERNAL target pose/);
+    assert.match(prompt, /INTERNAL target/);
     assert.match(prompt, /standing sample/);
     assert.match(prompt, /"ready"/);
+    assert.match(prompt, /Never mention photos/);
   });
 });
 
@@ -96,6 +98,23 @@ describe('encode and save capture', () => {
       assert.equal(second, path.join(dir, '2026-11-14T21-46-01-000Z.png'));
       const roundTrip = await readFile(saved);
       assert.deepEqual(roundTrip, encoded.bytes);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('saves a cheese snap without waiting on vision', async () => {
+    const frame = new VideoFrame(drawFace(4, false, false, 0), 640, 360, VideoBufferType.RGBA);
+    const dir = await mkdtemp(path.join(tmpdir(), 'pose-snap-'));
+    try {
+      const result = await saveFrameCapture(frame, {
+        captureDir: dir,
+        at: new Date('2026-11-14T22:30:00.000Z'),
+      });
+      assert.equal(result.ok, true);
+      assert.equal(result.savedPath, path.join(dir, '2026-11-14T22-30-00-000Z.png'));
+      const bytes = await readFile(result.savedPath);
+      assert.equal(bytes[0], 0x89);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

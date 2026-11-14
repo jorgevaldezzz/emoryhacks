@@ -2,27 +2,28 @@ import { fileURLToPath } from 'node:url';
 import { AutoSubscribe, cli, defineAgent, llm, ServerOptions, voice } from '@livekit/agents';
 import * as xai from '@livekit/agents-plugin-xai';
 import { LocalVideoTrack, TrackSource, VideoBufferType, VideoFrame, VideoSource } from '@livekit/rtc-node';
-import { takePhotoFromFrame, watchCallerCamera } from './caller_vision.mjs';
+import { saveFrameCapture, takePhotoFromFrame, watchCallerCamera } from './caller_vision.mjs';
 import { drawFace, FPS, HEIGHT, WIDTH } from './face.mjs';
 import { cropFacetimeFrame, frameToAgentRgba } from './frame_display.mjs';
 import { greetOnBridgeReady } from './greet.mjs';
 
 const LOOK_EVERY_MS = 8_000;
 const READY_TTL_MS = 2_500;
-const COUNTDOWN_MS = 3_200;
-const SNAP_FRAMES = Math.round(FPS * 0.7);
+const DIGIT_MS = 850;
+const SNAP_FRAMES = Math.round(FPS * 0.9);
 const REPLAY_FRAMES = Math.round(FPS * 4);
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-// Silent auto looks compare the caller to an internal sample skeleton. Cheese is the only visible snap.
-const instructions = `You are a pose coach on a FaceTime video call. The caller sees your AI face, not a stick-figure overlay.
+// Silent looks compare pose internally. Cheese snaps immediately — vision never blocks the shutter.
+const instructions = `You are a pose coach on a FaceTime video call. The caller sees your AI face.
 Always speak English only. Never switch languages.
-Silent camera checks run in the background and compare their pose to an internal target. When you receive a pose cue, say only that cue in one short sentence, then stop. Do not say you took a photo for those cues. If a cue says they look ready, tell them they are ready and can say cheese for the photo.
-Only take a real photo when they clearly say cheese, or clearly confirm they want a photo now (yes / take the photo / I'm ready after you asked). Then call the take_photo tool.
-After a real photo, acknowledge it briefly and ask if they want another. If they say yes, tell them to say cheese when ready.
-If they ask for guidance, call the guide_pose tool and say only that cue.
-Never invent a correction that was not in a cue. Never mention files, messaging, or an on-screen skeleton.
+When you get a pose cue, say "Okay" then only that body tip in one short sentence. Never say you are looking at, checking, reviewing, or going back to an image, photo, snapshot, or camera frame.
+If a cue says they look ready, tell them they are ready and can say cheese.
+When they say cheese (or clearly confirm a photo now), call take_photo immediately with no spoken preamble before the tool.
+After a real photo, acknowledge briefly that you took it and ask if they want another. If yes, tell them to say cheese when ready.
+If they ask for guidance, call guide_pose and say "Okay" then only that cue.
+Never invent a correction that was not in a cue. Never mention files, messaging, or skeletons.
 Be clear that you are an AI.`;
 const greeting = 'Greet in one short English sentence: say they can ask for guidance, you will help them match the target pose, and to say cheese for a three-two-one countdown before a photo.';
 
@@ -80,7 +81,7 @@ export default defineAgent({
     };
 
     /**
-     * Ready-check now, unless a fresh check is already available.
+     * Analyze-only pose check. Never used to gate the cheese shutter.
      * @param {import('@livekit/rtc-node').VideoFrame} cropped
      */
     const readyCheck = async (cropped) => {
@@ -91,23 +92,35 @@ export default defineAgent({
     };
 
     /**
-     * Final snap only when someone is in frame.
+     * Cheese snap: flash + FaceTime still + disk save first. Vision runs after for a tip.
      * @param {import('@livekit/rtc-node').VideoFrame} cropped
      */
     const commitPhoto = async (cropped) => {
-      const result = await takePhotoFromFrame(cropped, { save: true });
-      lastReady = { at: Date.now(), seen: result.seen, ready: result.ready, cue: result.cue };
-      if (result.seen) {
-        flashShutter();
-        showCapture(cropped);
+      flashShutter();
+      showCapture(cropped);
+      const saved = await saveFrameCapture(cropped);
+      console.log(`[caller-vision] snap saved=${saved.savedPath ?? 'no'} ok=${saved.ok}`);
+
+      /** @type {{ seen: boolean, ready: boolean, cue: string | null }} */
+      let analysis = { seen: true, ready: false, cue: null };
+      try {
+        const result = await takePhotoFromFrame(cropped, { save: false });
+        analysis = { seen: result.seen, ready: result.ready, cue: result.cue };
+        lastReady = { at: Date.now(), ...analysis };
+      } catch (error) {
+        console.warn('[caller-vision] post-snap vision failed', error instanceof Error ? error.message : error);
       }
-      console.log(`[caller-vision] photo: seen=${result.seen} ready=${result.ready} cue=${result.cue ?? 'none'}${result.savedPath ? ` saved=${result.savedPath}` : ''}`);
-      return result;
+      return {
+        ok: saved.ok,
+        snapped: true,
+        savedPath: saved.savedPath,
+        ...analysis,
+        message: analysis.cue ?? 'Photo taken.',
+      };
     };
 
     /**
-     * Silent auto shutter: estimate caller pose vs internal sample skeleton.
-     * No flash, preview, or save. Speaks when they need a cue or look ready.
+     * Silent auto look: pose tip only. No flash, preview, or save.
      * @param {import('@livekit/rtc-node').VideoFrame} cropped
      */
     const silentLook = async (cropped) => {
@@ -120,11 +133,8 @@ export default defineAgent({
       if (!result.cue || result.cue === lastCue || speaking || busy) return result;
       lastCue = result.cue;
       console.log(`[caller-vision] silent look cue: ready=${result.ready} ${result.cue}`);
-      const readyHint = result.ready
-        ? 'They match the target pose well. Tell them they look ready and can say cheese for the photo.'
-        : 'Coach them toward the target pose.';
       session.generateReply({
-        instructions: `Speak English only. A silent pose check just compared them to the internal target pose (the caller did not see a shutter or a skeleton). ${readyHint} Say only this cue in one short sentence, then stop. Do not say you took a photo: ${result.cue}`,
+        instructions: `Speak English only. Say "Okay," then only this pose tip in one short sentence, then stop. Never say you looked at, checked, reviewed, or went back to an image or photo: ${result.cue}`,
       });
       return result;
     };
@@ -155,17 +165,11 @@ export default defineAgent({
               try {
                 const ready = await readyCheck(cropped);
                 if (!ready.seen) {
-                  return { ok: true, message: 'Speak English only. Nobody is clearly in frame. Ask them to step into the camera so you can see them.' };
-                }
-                if (ready.ready) {
-                  return {
-                    ok: true,
-                    message: `Speak English only. Say only this cue, then stop: ${ready.cue ?? 'You look lined up and ready — say cheese when you want the photo.'}`,
-                  };
+                  return { ok: true, message: 'Speak English only. Say Okay, then ask them to step into the camera so you can see them.' };
                 }
                 return {
                   ok: true,
-                  message: `Speak English only. Say only this guidance cue, then stop: ${ready.cue ?? 'Adjust your stance a little to match the target pose.'}`,
+                  message: `Speak English only. Say Okay, then only this tip, then stop. Never mention looking at an image: ${ready.cue ?? 'Shift your stance a little to match the target pose.'}`,
                 };
               } catch (error) {
                 console.warn('[caller-vision] guide failed', error instanceof Error ? error.message : error);
@@ -176,25 +180,24 @@ export default defineAgent({
             },
           }),
           take_photo: llm.tool({
-            description: 'Run the cheese photo flow: ready-check, 3-2-1 countdown, then take and show the photo. Use only when they say cheese or clearly confirm they want a photo now.',
+            description: 'Start the cheese photo immediately: 3-2-1 on screen, then shutter flash, show the still on FaceTime, and save it. Call right away when they say cheese — no preamble.',
             execute: async () => {
               if (busy) return { ok: false, message: 'Already taking a photo. Wait a moment.' };
               const cropped = latestCropped();
               if (!cropped) {
                 return { ok: false, message: 'No camera frame yet. Ask them to keep FaceTime Video on.' };
               }
+              // Refuse only when a fresh check already said the frame is empty — never wait on vision here.
+              if (lastReady && Date.now() - lastReady.at < READY_TTL_MS && !lastReady.seen) {
+                return {
+                  ok: false,
+                  message: 'Speak English only. Do not take a photo. Nobody is in frame. Ask them to step into the camera, then say cheese again.',
+                };
+              }
+
               busy = true;
               try {
-                const ready = await readyCheck(cropped);
-                if (!ready.seen) {
-                  return {
-                    ok: false,
-                    message: 'Speak English only. Do not take a photo. Nobody is in frame. Ask them to step into the camera, then say cheese again.',
-                  };
-                }
-
-                // Visible 3-2-1 on the agent video. Do not await say() playout from inside
-                // a tool (that can deadlock); speak once and sleep through the countdown.
+                // Countdown starts now. Do not await say() playout (tool deadlock risk).
                 try {
                   session.say('Three. Two. One.', { allowInterruptions: false });
                 } catch (error) {
@@ -202,34 +205,26 @@ export default defineAgent({
                 }
                 for (const digit of [3, 2, 1]) {
                   countdownDigit = digit;
-                  await sleep(Math.floor(COUNTDOWN_MS / 3));
+                  await sleep(DIGIT_MS);
                 }
                 countdownDigit = 0;
-                await sleep(150);
 
                 const finalCrop = latestCropped();
                 if (!finalCrop) {
                   return { ok: false, message: 'The camera dropped during countdown. Ask them to say cheese again.' };
                 }
-                const finalReady = await readyCheck(finalCrop);
-                if (!finalReady.seen) {
-                  return {
-                    ok: false,
-                    message: 'Speak English only. Do not save a photo. They left the frame during countdown. Ask them to get back in view and say cheese again.',
-                  };
-                }
 
+                // Shutter + preview + disk save happen before any vision call.
                 const result = await commitPhoto(finalCrop);
-                if (!result.seen) {
-                  // Should be rare after the second check; still do not treat as a keeper.
+                if (!result.savedPath) {
                   return {
                     ok: false,
-                    message: 'Speak English only. Nobody was clearly in the final frame, so skip celebrating the photo and ask them to try cheese again.',
+                    message: 'Speak English only. The shutter ran but the file did not save. Ask them to say cheese again.',
                   };
                 }
                 return {
                   ok: true,
-                  message: `Speak English only. Acknowledge you took the photo and it is on FaceTime. Say: ${result.cue ?? 'Looking good.'}. Then ask if they want another. If yes, tell them to say cheese when ready.`,
+                  message: `Speak English only. You already took the photo — it flashed and is on FaceTime. Acknowledge briefly. If there is a tip, say Okay then only: ${result.cue ?? 'Looking good.'}. Then ask if they want another. Never say you looked back at an image.`,
                 };
               } catch (error) {
                 countdownDigit = 0;
