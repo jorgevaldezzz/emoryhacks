@@ -14,14 +14,16 @@ const REPLAY_FRAMES = Math.round(FPS * 4);
 // Grok Voice never gets pixels. Photos are taken on a timer (and on take_photo);
 // each photo is shown on FaceTime and becomes one short spoken cue.
 const instructions = `You are a pose coach on a FaceTime video call.
+Always speak English only. Never switch to Spanish or any other language, even if the video is blank, dark, or the camera is off.
 The caller sees your animated face, a bright white flash when a photo is taken, then the photo itself on your video.
-Photos are taken for them. When you are told a photo was taken, always acknowledge it in one short sentence, mention what you noticed if a cue is given, then ask if they want more photos. Then stop.
+Photos are taken for them. When you are told a photo was taken, always acknowledge it in one short English sentence, mention what you noticed if a cue is given, then ask if they want more photos. Then stop.
 If they say yes, more, another, keep going, or ask you to take a photo, call the take_photo tool.
-Never say you cannot see them, cannot see a file, or that messaging is missing.
+If the camera is off or the frame is empty, say so briefly in English and ask them to turn the camera back on. Do not apologize in another language.
+Never say you cannot see a file, or that messaging is missing.
 Never invent a correction that was not in a cue.
-If they ask an unrelated question, answer in one or two short sentences.
+If they ask an unrelated question, answer in one or two short English sentences.
 Be clear that you are an AI.`;
-const greeting = 'Greet the caller in one short sentence: say you are an AI pose coach, that you will take photos and show them on the call, and that you will ask before taking more after each one.';
+const greeting = 'Greet the caller in one short English sentence: say you are an AI pose coach, that you will take photos and show them on the call, and that you will ask before taking more after each one. Stay in English.';
 
 export default defineAgent({
   entry: async ctx => {
@@ -87,7 +89,7 @@ export default defineAgent({
       const observation = result.cue
         ? result.cue
         : (result.seen === false
-          ? 'I could not clearly make you out in that frame'
+          ? 'Your camera looks off or I cannot see you in the frame'
           : 'I saved that shot');
       console.log(`[caller-vision] photo: ${observation}${result.savedPath ? ` saved=${result.savedPath}` : ''}`);
       return { ...result, observation };
@@ -96,7 +98,7 @@ export default defineAgent({
     /** @param {{ observation: string }} result */
     const announcePhoto = (result) => {
       session.generateReply({
-        instructions: `You just took a photo and it is showing on your FaceTime video now. Acknowledge that you took the photo, then say this observation in the same short reply: ${result.observation}. Then ask if they want more photos. Do not mention files or folders.`,
+        instructions: `Speak English only. You just took a photo and it is showing on your FaceTime video now. Acknowledge that you took the photo, then say this observation in the same short reply: ${result.observation}. Then ask if they want more photos. Do not mention files or folders. Never switch languages.`,
       });
     };
 
@@ -129,7 +131,7 @@ export default defineAgent({
                 const result = await snapPhoto(photo);
                 return {
                   ok: result.ok,
-                  message: `Acknowledge you took a photo and it is on FaceTime now. Say: ${result.observation}. Then ask if they want more photos.`,
+                  message: `Speak English only. Acknowledge you took a photo and it is on FaceTime now. Say: ${result.observation}. Then ask if they want more photos. Never switch languages.`,
                 };
               } catch (error) {
                 const message = error instanceof Error ? error.message : String(error);
@@ -177,7 +179,7 @@ export default defineAgent({
         flashShutter();
         showCapture(photo);
         session.generateReply({
-          instructions: 'You just took a photo and it is showing on FaceTime. Acknowledge that you took it, say you could not describe it this time, then ask if they want more photos.',
+          instructions: 'Speak English only. You just took a photo and it is showing on FaceTime. Acknowledge that you took it, say you could not describe it this time, then ask if they want more photos. Never switch languages.',
         });
       }).finally(() => { looking = false; });
     }, LOOK_EVERY_MS);

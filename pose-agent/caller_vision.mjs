@@ -12,12 +12,12 @@ const DEFAULT_MODEL = 'grok-4.7';
 const CAPTURE_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), 'captures');
 
 const VISION_PROMPT = `You are looking at one photo from the caller's FaceTime camera.
-Reply with JSON only, no markdown: {"seen": false, "cue": null} or {"seen": true, "cue": "<one short spoken sentence>"}.
+Reply with JSON only, no markdown: {"seen": false, "cue": null} or {"seen": true, "cue": "<one short spoken sentence in English>"}.
 Set seen to true when a person is clearly visible.
-When seen is true, cue must describe what they are doing right now in one short spoken sentence: smile, frown, facing the camera, turned away, waving, hands up, sitting, standing, stepping back, too close, or similar.
+When seen is true, cue must be English only and describe what they are doing right now in one short spoken sentence: smile, frown, facing the camera, turned away, waving, hands up, sitting, standing, stepping back, too close, or similar.
 If nothing special is happening, say a brief ready/framed observation such as "You're facing the camera and look ready."
-When seen is false, cue must be null.
-Do not invent body parts or actions you cannot see. Do not mention files, folders, or messaging.`;
+When seen is false (blank, dark, camera off, no person), cue must be null.
+Do not invent body parts or actions you cannot see. Do not mention files, folders, or messaging. Never write the cue in Spanish or any language other than English.`;
 
 /**
  * @typedef {{ ok: boolean, seen: boolean, cue: string | null, message: string, savedPath?: string }} PhotoResult
