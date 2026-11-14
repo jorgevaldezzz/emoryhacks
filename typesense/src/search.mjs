@@ -20,7 +20,9 @@ export class SpotSearchError extends Error {
 }
 
 const DEFAULT_RADIUS_KM = 3;
-const MAX_RADIUS_KM = 40;
+// A ceiling, not a target. Past ~10 km it stops being "somewhere nearby" and
+// starts being a day trip the caller did not ask for.
+const MAX_RADIUS_KM = 10;
 const DEFAULT_LIMIT = 5;
 
 let shared;
