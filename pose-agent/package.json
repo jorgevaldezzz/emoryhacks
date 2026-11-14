@@ -8,7 +8,8 @@
   },
   "scripts": {
     "start": "node --env-file=.env.local agent.mjs start",
-    "check": "node --check agent.mjs && node --check face.mjs && node --check greet.mjs && node --check caller_vision.mjs",
+    "check": "node --check agent.mjs && node --check face.mjs && node --check greet.mjs && node --check caller_vision.mjs && node --check chert_send.mjs && node --check frame_display.mjs",
+    "test": "node --test test/*.test.mjs",
     "help": "node agent.mjs --help"
   },
   "dependencies": {
