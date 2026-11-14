@@ -15,16 +15,16 @@ const REPLAY_FRAMES = Math.round(FPS * 4);
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-// Silent auto looks compare the caller to the skeleton. Cheese is the only visible snap.
-const instructions = `You are a pose coach on a FaceTime video call.
+// Silent auto looks compare the caller to an internal sample skeleton. Cheese is the only visible snap.
+const instructions = `You are a pose coach on a FaceTime video call. The caller sees your AI face, not a stick-figure overlay.
 Always speak English only. Never switch languages.
-The caller sees a sample skeleton to line up with. Silent camera checks run in the background; when you receive a pose cue, say only that cue in one short sentence, then stop. Do not say you took a photo for those cues.
+Silent camera checks run in the background and compare their pose to an internal target. When you receive a pose cue, say only that cue in one short sentence, then stop. Do not say you took a photo for those cues. If a cue says they look ready, tell them they are ready and can say cheese for the photo.
 Only take a real photo when they clearly say cheese, or clearly confirm they want a photo now (yes / take the photo / I'm ready after you asked). Then call the take_photo tool.
 After a real photo, acknowledge it briefly and ask if they want another. If they say yes, tell them to say cheese when ready.
 If they ask for guidance, call the guide_pose tool and say only that cue.
-Never invent a correction that was not in a cue. Never mention files or messaging.
+Never invent a correction that was not in a cue. Never mention files, messaging, or an on-screen skeleton.
 Be clear that you are an AI.`;
-const greeting = 'Greet in one short English sentence: say they can ask for guidance, you will help them match the pose, and to say cheese for a three-two-one countdown before a photo.';
+const greeting = 'Greet in one short English sentence: say they can ask for guidance, you will help them match the target pose, and to say cheese for a three-two-one countdown before a photo.';
 
 export default defineAgent({
   entry: async ctx => {
@@ -41,7 +41,7 @@ export default defineAgent({
     const track = LocalVideoTrack.createVideoTrack('agent-video', source);
     let tick = 0, speaking = false, busy = false, looking = false, lastCue = '', announcedWait = false;
     let snapUntil = 0, replayUntil = 0, countdownDigit = 0, lookTimer;
-    /** @type {{ at: number, seen: boolean, cue: string | null } | null} */
+    /** @type {{ at: number, seen: boolean, ready: boolean, cue: string | null } | null} */
     let lastReady = null;
     /** @type {Uint8Array | null} */
     let replayPixels = null;
@@ -86,7 +86,7 @@ export default defineAgent({
     const readyCheck = async (cropped) => {
       if (lastReady && Date.now() - lastReady.at < READY_TTL_MS) return lastReady;
       const result = await takePhotoFromFrame(cropped, { save: false });
-      lastReady = { at: Date.now(), seen: result.seen, cue: result.cue };
+      lastReady = { at: Date.now(), seen: result.seen, ready: result.ready, cue: result.cue };
       return lastReady;
     };
 
@@ -96,31 +96,35 @@ export default defineAgent({
      */
     const commitPhoto = async (cropped) => {
       const result = await takePhotoFromFrame(cropped, { save: true });
-      lastReady = { at: Date.now(), seen: result.seen, cue: result.cue };
+      lastReady = { at: Date.now(), seen: result.seen, ready: result.ready, cue: result.cue };
       if (result.seen) {
         flashShutter();
         showCapture(cropped);
       }
-      console.log(`[caller-vision] photo: seen=${result.seen} cue=${result.cue ?? 'none'}${result.savedPath ? ` saved=${result.savedPath}` : ''}`);
+      console.log(`[caller-vision] photo: seen=${result.seen} ready=${result.ready} cue=${result.cue ?? 'none'}${result.savedPath ? ` saved=${result.savedPath}` : ''}`);
       return result;
     };
 
     /**
-     * Silent auto shutter: compare to the skeleton only. No flash, preview, or save.
+     * Silent auto shutter: estimate caller pose vs internal sample skeleton.
+     * No flash, preview, or save. Speaks when they need a cue or look ready.
      * @param {import('@livekit/rtc-node').VideoFrame} cropped
      */
     const silentLook = async (cropped) => {
       const result = await takePhotoFromFrame(cropped, { save: false });
-      lastReady = { at: Date.now(), seen: result.seen, cue: result.cue };
+      lastReady = { at: Date.now(), seen: result.seen, ready: result.ready, cue: result.cue };
       if (!result.seen) {
         console.log('[caller-vision] silent look: nobody in frame');
         return result;
       }
       if (!result.cue || result.cue === lastCue || speaking || busy) return result;
       lastCue = result.cue;
-      console.log(`[caller-vision] silent look cue: ${result.cue}`);
+      console.log(`[caller-vision] silent look cue: ready=${result.ready} ${result.cue}`);
+      const readyHint = result.ready
+        ? 'They match the target pose well. Tell them they look ready and can say cheese for the photo.'
+        : 'Coach them toward the target pose.';
       session.generateReply({
-        instructions: `Speak English only. A silent pose check against the skeleton just ran (the caller did not see a shutter). Say only this cue in one short sentence, then stop. Do not say you took a photo: ${result.cue}`,
+        instructions: `Speak English only. A silent pose check just compared them to the internal target pose (the caller did not see a shutter or a skeleton). ${readyHint} Say only this cue in one short sentence, then stop. Do not say you took a photo: ${result.cue}`,
       });
       return result;
     };
@@ -140,7 +144,7 @@ export default defineAgent({
         instructions,
         tools: {
           guide_pose: llm.tool({
-            description: 'Look at the caller against the sample skeleton and return one short guidance cue. Use when they ask for guidance, help posing, or how to line up.',
+            description: 'Compare the caller to the internal target pose and return one short guidance cue. Use when they ask for guidance, help posing, or how to line up.',
             execute: async () => {
               if (busy) return { ok: false, message: 'Already working. Wait a moment.' };
               const cropped = latestCropped();
@@ -151,11 +155,17 @@ export default defineAgent({
               try {
                 const ready = await readyCheck(cropped);
                 if (!ready.seen) {
-                  return { ok: true, message: 'Speak English only. Nobody is clearly in frame. Ask them to step into the skeleton outline.' };
+                  return { ok: true, message: 'Speak English only. Nobody is clearly in frame. Ask them to step into the camera so you can see them.' };
+                }
+                if (ready.ready) {
+                  return {
+                    ok: true,
+                    message: `Speak English only. Say only this cue, then stop: ${ready.cue ?? 'You look lined up and ready — say cheese when you want the photo.'}`,
+                  };
                 }
                 return {
                   ok: true,
-                  message: `Speak English only. Say only this guidance cue, then stop: ${ready.cue ?? 'Line your body up with the skeleton on screen.'}`,
+                  message: `Speak English only. Say only this guidance cue, then stop: ${ready.cue ?? 'Adjust your stance a little to match the target pose.'}`,
                 };
               } catch (error) {
                 console.warn('[caller-vision] guide failed', error instanceof Error ? error.message : error);
@@ -179,7 +189,7 @@ export default defineAgent({
                 if (!ready.seen) {
                   return {
                     ok: false,
-                    message: 'Speak English only. Do not take a photo. Nobody is in frame. Ask them to step into the skeleton, then say cheese again.',
+                    message: 'Speak English only. Do not take a photo. Nobody is in frame. Ask them to step into the camera, then say cheese again.',
                   };
                 }
 
@@ -205,7 +215,7 @@ export default defineAgent({
                 if (!finalReady.seen) {
                   return {
                     ok: false,
-                    message: 'Speak English only. Do not save a photo. They left the frame during countdown. Ask them to line up and say cheese again.',
+                    message: 'Speak English only. Do not save a photo. They left the frame during countdown. Ask them to get back in view and say cheese again.',
                   };
                 }
 

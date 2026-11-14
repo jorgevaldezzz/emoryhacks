@@ -1,4 +1,5 @@
-// Sample reference pose the caller lines up with on FaceTime.
+// Internal sample reference pose used only for comparing silent looks / guidance.
+// Not drawn on FaceTime — the caller sees the AI face, not this stick figure.
 // Standing portrait: head, torso, arms slightly out, feet planted.
 
 const INK = [236, 244, 248];
@@ -22,6 +23,18 @@ export const SAMPLE_SKELETON = {
   leftAnkle: [0.42, 0.88],
   rightAnkle: [0.58, 0.88],
 };
+
+/**
+ * Compact text description of the target pose for the vision model.
+ * @param {typeof SAMPLE_SKELETON} [skeleton]
+ * @returns {string}
+ */
+export function describeSampleSkeleton(skeleton = SAMPLE_SKELETON) {
+  const joints = Object.entries(skeleton)
+    .map(([name, [x, y]]) => `${name}=(${x.toFixed(2)},${y.toFixed(2)})`)
+    .join(', ');
+  return `Standing portrait facing the camera: head near top-center, arms slightly out from the sides, feet planted about shoulder-width. Normalized joints (x,y in 0..1, origin top-left): ${joints}.`;
+}
 
 const BONES = [
   ['head', 'neck'],
