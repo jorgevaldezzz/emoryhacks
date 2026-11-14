@@ -59,7 +59,8 @@ silently compares your pose to the loaded reference image in `reference-images/`
 It does not use the old arms-out sample scaffold. Those checks never flash or
 preview a still. Say **cheese** for an immediate 3-2-1: shutter flash, still on
 FaceTime, and a timestamped PNG in `captures/` — vision tips run after the snap
-so they never delay the photo.
+so they never delay the photo. Snaps keep the cropped camera aspect (no square
+stretch); the on-call preview letterboxes instead of smooshing the still.
 
 ## Change the picture
 

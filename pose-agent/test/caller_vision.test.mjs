@@ -90,12 +90,14 @@ describe('buildVisionPrompt', () => {
 });
 
 describe('encode and save capture', () => {
-  it('writes a PNG the vision path can reuse', async () => {
+  it('writes a PNG that keeps the frame aspect ratio', async () => {
     const frame = new VideoFrame(drawFace(3, false, false, 0), 640, 360, VideoBufferType.RGBA);
     const encoded = await encodeFramePng(frame);
     assert.ok(encoded?.bytes?.length > 100);
     assert.equal(encoded.bytes[0], 0x89);
     assert.equal(encoded.bytes[1], 0x50);
+    assert.equal(encoded.width, 640);
+    assert.equal(encoded.height, 360);
 
     const dir = await mkdtemp(path.join(tmpdir(), 'pose-capture-'));
     try {
@@ -111,6 +113,15 @@ describe('encode and save capture', () => {
     }
   });
 
+  it('downscales with fit:inside instead of squashing to a square', async () => {
+    const data = new Uint8Array(200 * 100 * 4);
+    data.fill(180);
+    const frame = new VideoFrame(data, 200, 100, VideoBufferType.RGBA);
+    const encoded = await encodeFramePng(frame, { maxSide: 100 });
+    assert.equal(encoded.width, 100);
+    assert.equal(encoded.height, 50);
+  });
+
   it('saves a cheese snap without waiting on vision', async () => {
     const frame = new VideoFrame(drawFace(4, false, false, 0), 640, 360, VideoBufferType.RGBA);
     const dir = await mkdtemp(path.join(tmpdir(), 'pose-snap-'));
@@ -121,6 +132,8 @@ describe('encode and save capture', () => {
       });
       assert.equal(result.ok, true);
       assert.equal(result.savedPath, path.join(dir, '2026-11-14T22-30-00-000Z.png'));
+      assert.equal(result.width, 640);
+      assert.equal(result.height, 360);
       const bytes = await readFile(result.savedPath);
       assert.equal(bytes[0], 0x89);
     } finally {
