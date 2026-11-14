@@ -2,10 +2,11 @@ import { fileURLToPath } from 'node:url';
 import { AutoSubscribe, cli, defineAgent, llm, ServerOptions, voice } from '@livekit/agents';
 import * as xai from '@livekit/agents-plugin-xai';
 import { LocalVideoTrack, TrackSource, VideoBufferType, VideoFrame, VideoSource } from '@livekit/rtc-node';
-import { saveFrameCapture, takePhotoFromFrame, watchCallerCamera } from './caller_vision.mjs';
+import { encodeFramePng, saveFrameCapture, takePhotoFromFrame, watchCallerCamera } from './caller_vision.mjs';
 import { drawFace, FPS, HEIGHT, WIDTH } from './face.mjs';
 import { cropFacetimeFrame, frameToAgentRgba } from './frame_display.mjs';
 import { greetOnBridgeReady } from './greet.mjs';
+import { createLoadedPoseMatcher } from './reference.mjs';
 
 const LOOK_EVERY_MS = 8_000;
 const READY_TTL_MS = 2_500;
@@ -15,7 +16,8 @@ const REPLAY_FRAMES = Math.round(FPS * 4);
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-// Silent looks compare pose internally. Cheese snaps immediately — vision never blocks the shutter.
+// Guidance compares the caller to a reference photo via pose-matcher.
+// Cheese snaps immediately — vision never blocks the shutter.
 const instructions = `You are a pose coach on a FaceTime video call. The caller sees your AI face.
 Always speak English only. Never switch languages.
 When you get a pose cue, say "Okay" then only that body tip in one short sentence. Never say you are looking at, checking, reviewing, or going back to an image, photo, snapshot, or camera frame.
@@ -25,7 +27,7 @@ After a real photo, acknowledge briefly that you took it and ask if they want an
 If they ask for guidance, call guide_pose and say "Okay" then only that cue.
 Never invent a correction that was not in a cue. Never mention files, messaging, or skeletons.
 Be clear that you are an AI.`;
-const greeting = 'Greet in one short English sentence: say they can ask for guidance, you will help them match the target pose, and to say cheese for a three-two-one countdown before a photo.';
+const greeting = 'Greet in one short English sentence: say they can ask for guidance, you will help them match the reference pose, and to say cheese for a three-two-one countdown before a photo.';
 
 export default defineAgent({
   entry: async ctx => {
@@ -36,6 +38,16 @@ export default defineAgent({
       camera = watchCallerCamera(ctx.room, caller);
     } catch (error) {
       console.warn('[caller-vision] camera watch failed', error instanceof Error ? error.message : error);
+    }
+
+    /** @type {Awaited<ReturnType<typeof createLoadedPoseMatcher>>['matcher'] | null} */
+    let poseMatcher = null;
+    try {
+      const loaded = await createLoadedPoseMatcher();
+      poseMatcher = loaded.matcher;
+      console.log(`[pose-matcher] reference ready via ${loaded.source} (${loaded.imagePath})`);
+    } catch (error) {
+      console.warn('[pose-matcher] reference unavailable', error instanceof Error ? error.message : error);
     }
 
     const source = new VideoSource(WIDTH, HEIGHT);
@@ -81,18 +93,47 @@ export default defineAgent({
     };
 
     /**
+     * Compare the caller frame to the loaded reference pose.
+     * @param {import('@livekit/rtc-node').VideoFrame} cropped
+     */
+    const compareToReference = async (cropped) => {
+      if (!poseMatcher) {
+        const result = await takePhotoFromFrame(cropped, { save: false });
+        return {
+          seen: result.seen,
+          ready: result.ready,
+          cue: result.cue,
+          status: result.seen ? (result.ready ? 'matched' : 'adjust') : 'person_not_visible',
+        };
+      }
+      const encoded = await encodeFramePng(cropped);
+      if (!encoded) {
+        return { seen: false, ready: false, cue: null, status: 'encode_failed' };
+      }
+      const result = await poseMatcher.check(`data:image/png;base64,${encoded.base64Data}`);
+      const seen = result.status !== 'person_not_visible' && result.status !== 'reference_missing';
+      return {
+        seen,
+        ready: result.ready === true || result.status === 'matched',
+        cue: result.feedback ?? null,
+        status: result.status,
+        score: result.score ?? null,
+      };
+    };
+
+    /**
      * Analyze-only pose check. Never used to gate the cheese shutter.
      * @param {import('@livekit/rtc-node').VideoFrame} cropped
      */
     const readyCheck = async (cropped) => {
       if (lastReady && Date.now() - lastReady.at < READY_TTL_MS) return lastReady;
-      const result = await takePhotoFromFrame(cropped, { save: false });
+      const result = await compareToReference(cropped);
       lastReady = { at: Date.now(), seen: result.seen, ready: result.ready, cue: result.cue };
       return lastReady;
     };
 
     /**
-     * Cheese snap: flash + FaceTime still + disk save first. Vision runs after for a tip.
+     * Cheese snap: flash + FaceTime still + disk save first. Pose tip after.
      * @param {import('@livekit/rtc-node').VideoFrame} cropped
      */
     const commitPhoto = async (cropped) => {
@@ -104,11 +145,11 @@ export default defineAgent({
       /** @type {{ seen: boolean, ready: boolean, cue: string | null }} */
       let analysis = { seen: true, ready: false, cue: null };
       try {
-        const result = await takePhotoFromFrame(cropped, { save: false });
+        const result = await compareToReference(cropped);
         analysis = { seen: result.seen, ready: result.ready, cue: result.cue };
         lastReady = { at: Date.now(), ...analysis };
       } catch (error) {
-        console.warn('[caller-vision] post-snap vision failed', error instanceof Error ? error.message : error);
+        console.warn('[caller-vision] post-snap compare failed', error instanceof Error ? error.message : error);
       }
       return {
         ok: saved.ok,
@@ -120,11 +161,11 @@ export default defineAgent({
     };
 
     /**
-     * Silent auto look: pose tip only. No flash, preview, or save.
+     * Silent auto look against the reference pose. No flash, preview, or save.
      * @param {import('@livekit/rtc-node').VideoFrame} cropped
      */
     const silentLook = async (cropped) => {
-      const result = await takePhotoFromFrame(cropped, { save: false });
+      const result = await compareToReference(cropped);
       lastReady = { at: Date.now(), seen: result.seen, ready: result.ready, cue: result.cue };
       if (!result.seen) {
         console.log('[caller-vision] silent look: nobody in frame');
@@ -154,7 +195,7 @@ export default defineAgent({
         instructions,
         tools: {
           guide_pose: llm.tool({
-            description: 'Compare the caller to the internal target pose and return one short guidance cue. Use when they ask for guidance, help posing, or how to line up.',
+            description: 'Compare the caller to the reference pose and return one short guidance cue. Use when they ask for guidance, help posing, or how to line up.',
             execute: async () => {
               if (busy) return { ok: false, message: 'Already working. Wait a moment.' };
               const cropped = latestCropped();
@@ -169,7 +210,7 @@ export default defineAgent({
                 }
                 return {
                   ok: true,
-                  message: `Speak English only. Say Okay, then only this tip, then stop. Never mention looking at an image: ${ready.cue ?? 'Shift your stance a little to match the target pose.'}`,
+                  message: `Speak English only. Say Okay, then only this tip, then stop. Never mention looking at an image: ${ready.cue ?? 'Shift your stance a little to match the reference pose.'}`,
                 };
               } catch (error) {
                 console.warn('[caller-vision] guide failed', error instanceof Error ? error.message : error);
@@ -187,7 +228,6 @@ export default defineAgent({
               if (!cropped) {
                 return { ok: false, message: 'No camera frame yet. Ask them to keep FaceTime Video on.' };
               }
-              // Refuse only when a fresh check already said the frame is empty — never wait on vision here.
               if (lastReady && Date.now() - lastReady.at < READY_TTL_MS && !lastReady.seen) {
                 return {
                   ok: false,
@@ -197,7 +237,6 @@ export default defineAgent({
 
               busy = true;
               try {
-                // Countdown starts now. Do not await say() playout (tool deadlock risk).
                 try {
                   session.say('Three. Two. One.', { allowInterruptions: false });
                 } catch (error) {
@@ -214,7 +253,6 @@ export default defineAgent({
                   return { ok: false, message: 'The camera dropped during countdown. Ask them to say cheese again.' };
                 }
 
-                // Shutter + preview + disk save happen before any vision call.
                 const result = await commitPhoto(finalCrop);
                 if (!result.savedPath) {
                   return {
