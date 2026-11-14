@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 import { VideoBufferType, VideoFrame } from '@livekit/rtc-node';
 import { cropFacetimeFrame, cropFacetimeRgba, frameToAgentRgba, scaleRgba } from '../frame_display.mjs';
 import { drawFace } from '../face.mjs';
-import { drawSampleSkeleton, SAMPLE_SKELETON } from '../skeleton.mjs';
+import { describeSampleSkeleton, drawSampleSkeleton, SAMPLE_SKELETON } from '../skeleton.mjs';
 
 describe('scaleRgba', () => {
   it('scales a tiny buffer up', () => {
@@ -57,16 +57,26 @@ describe('cropFacetimeFrame', () => {
 });
 
 describe('sample skeleton', () => {
-  it('draws joints onto a blank buffer', () => {
+  it('draws joints onto a blank buffer for internal use', () => {
     const pixels = new Uint8Array(640 * 360 * 4);
     const before = pixels.slice();
     drawSampleSkeleton(pixels, { width: 640, height: 360, skeleton: SAMPLE_SKELETON });
     assert.notDeepEqual(pixels, before);
   });
 
-  it('shows a countdown digit', () => {
+  it('describes the target pose for vision compare', () => {
+    const text = describeSampleSkeleton();
+    assert.match(text, /Standing portrait/);
+    assert.match(text, /head=/);
+    assert.match(text, /leftAnkle=/);
+  });
+
+  it('keeps the AI face by default and overlays countdown digits', () => {
     const idle = drawFace(0, false, false, 0);
     const three = drawFace(0, false, false, 3);
     assert.notDeepEqual(idle, three);
+    // Idle face should not look like a skeleton-only stage (mint face at center).
+    const i = (170 * 640 + 320) * 4;
+    assert.equal(idle[i], 141);
   });
 });

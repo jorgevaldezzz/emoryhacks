@@ -53,11 +53,12 @@ publishes an audio track, and shows video **only from that same participant**.
 
 ## Caller vision
 
-The agent shows a sample skeleton to line up with. About every eight seconds it
-silently checks your pose against that skeleton and may give a short cue — no
-flash and no photo preview for those checks. Say **cheese** for a real 3-2-1
-photo (flash + still on FaceTime). Empty frames are not saved. Captures land in
-`captures/` as timestamped PNGs.
+You see the animated AI face on FaceTime. About every eight seconds the agent
+silently estimates your pose, compares it to an internal sample skeleton, and
+may coach you — or tell you when you look ready. Those checks never flash or
+preview a still. Say **cheese** for a real 3-2-1 photo (flash + still on
+FaceTime). Empty frames are not saved. Captures land in `captures/` as
+timestamped PNGs.
 
 ## Change the picture
 
