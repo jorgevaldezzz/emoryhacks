@@ -1,6 +1,6 @@
 import { fileURLToPath } from 'node:url';
 import { AutoSubscribe, cli, defineAgent, ServerOptions, voice } from '@livekit/agents';
-import { realtime } from '@livekit/agents-plugin-openai';
+import * as xai from '@livekit/agents-plugin-xai';
 import { LocalVideoTrack, TrackSource, VideoBufferType, VideoFrame, VideoSource } from '@livekit/rtc-node';
 import { drawFace, FPS, HEIGHT, WIDTH } from './face.mjs';
 import { greetOnBridgeReady } from './greet.mjs';
@@ -31,7 +31,7 @@ export default defineAgent({
     const timer = setInterval(frame, 1000 / FPS);
 
     const session = new voice.AgentSession({
-      llm: new realtime.RealtimeModel({ model: 'gpt-realtime', voice: 'marin' }),
+      llm: new xai.realtime.RealtimeModel({ voice: 'ara' }),
     });
     session.on(voice.AgentSessionEventTypes.AgentStateChanged, event => { speaking = event.newState === 'speaking'; });
     ctx.addShutdownCallback(async () => {
