@@ -26,14 +26,8 @@ export function drawFace(tick, speaking, snapping = false) {
       if (((x - cx) / 48) ** 2 + ((y - (cy + 45)) / mouth) ** 2 < 1) color = INK;
       if (y > HEIGHT - 22 && y < HEIGHT - 12 && x > bar && x < bar + 40) color = ACCENT;
       if (snapping) {
-        // White shutter flash, stronger toward the edges.
-        const edge = Math.min(x, y, WIDTH - 1 - x, HEIGHT - 1 - y);
-        const flash = edge < 28 ? 1 : 0.55;
-        color = [
-          Math.min(255, Math.round(color[0] + (255 - color[0]) * flash)),
-          Math.min(255, Math.round(color[1] + (255 - color[1]) * flash)),
-          Math.min(255, Math.round(color[2] + (255 - color[2]) * flash)),
-        ];
+        // Full-frame white shutter so the snap is obvious on FaceTime.
+        color = [255, 255, 255];
       }
       const i = (y * WIDTH + x) * 4;
       pixels[i] = color[0]; pixels[i + 1] = color[1]; pixels[i + 2] = color[2]; pixels[i + 3] = 255;

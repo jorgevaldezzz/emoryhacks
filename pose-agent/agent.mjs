@@ -8,21 +8,22 @@ import { frameToAgentRgba } from './frame_display.mjs';
 import { greetOnBridgeReady } from './greet.mjs';
 
 const LOOK_EVERY_MS = 8_000;
-const SNAP_FRAMES = Math.round(FPS * 0.35);
-const REPLAY_FRAMES = Math.round(FPS * 3);
+const SNAP_FRAMES = Math.round(FPS * 0.7);
+const REPLAY_FRAMES = Math.round(FPS * 4);
 
 // Grok Voice never gets pixels. Photos are taken on a timer (and on take_photo);
-// each photo becomes one short cue the coach can say.
+// each photo is shown on FaceTime and becomes one short spoken cue.
 const instructions = `You are a pose coach on a FaceTime video call.
-The caller sees your animated face. Photos of them are taken automatically every few seconds, and you are handed a short cue describing what they are doing.
-Treat every cue as something you can see right now. Say the cue in one short sentence, then stop.
-React to what the cue says: smiling, facing away, waving, posture, framing, and similar actions.
-Never say you cannot see them, cannot see a file, cannot open a photo, or that messaging is missing.
+Always speak English only. Never switch to Spanish or any other language, even if the video is blank, dark, or the camera is off.
+The caller sees your animated face, a bright white flash when a photo is taken, then the photo itself on your video.
+Photos are taken for them. When you are told a photo was taken, always acknowledge it in one short English sentence, mention what you noticed if a cue is given, then ask if they want more photos. Then stop.
+If they say yes, more, another, keep going, or ask you to take a photo, call the take_photo tool.
+If the camera is off or the frame is empty, say so briefly in English and ask them to turn the camera back on. Do not apologize in another language.
+Never say you cannot see a file, or that messaging is missing.
 Never invent a correction that was not in a cue.
-If the caller asks a question, answer in one or two short sentences.
-If they ask you to take a photo now, call the take_photo tool, then say only the tool's message.
+If they ask an unrelated question, answer in one or two short English sentences.
 Be clear that you are an AI.`;
-const greeting = 'Greet the caller in one short sentence: say you are an AI pose coach and that you can already see them through the camera, then ask them to get into frame.';
+const greeting = 'Greet the caller in one short English sentence: say you are an AI pose coach, that you will take photos and show them on the call, and that you will ask before taking more after each one. Stay in English.';
 
 export default defineAgent({
   entry: async ctx => {
@@ -41,13 +42,15 @@ export default defineAgent({
     // from the participant that speaks, so the picture and the voice stay together.
     const source = new VideoSource(WIDTH, HEIGHT);
     const track = LocalVideoTrack.createVideoTrack('agent-video', source);
-    let tick = 0, speaking = false, looking = false, lastCue = '', announcedWait = false;
+    let tick = 0, speaking = false, looking = false, announcedWait = false;
     let snapUntil = 0, replayUntil = 0, lookTimer;
+    // After each photo we ask before taking another. First auto look is allowed.
+    let wantsMore = true;
     /** @type {Uint8Array | null} */
     let replayPixels = null;
     const frame = () => {
       const snapping = tick < snapUntil;
-      const pixels = (tick < replayUntil && replayPixels)
+      const pixels = (!snapping && tick < replayUntil && replayPixels)
         ? replayPixels
         : drawFace(tick, speaking, snapping);
       source.captureFrame(new VideoFrame(pixels, WIDTH, HEIGHT, VideoBufferType.RGBA));
@@ -61,7 +64,8 @@ export default defineAgent({
     const showCapture = (photo) => {
       try {
         replayPixels = frameToAgentRgba(photo, WIDTH, HEIGHT);
-        replayUntil = tick + REPLAY_FRAMES;
+        // Start the still after the white flash finishes.
+        replayUntil = tick + SNAP_FRAMES + REPLAY_FRAMES;
       } catch (error) {
         console.warn('[caller-vision] could not preview capture', error instanceof Error ? error.message : error);
       }
@@ -73,20 +77,29 @@ export default defineAgent({
     session.on(voice.AgentSessionEventTypes.AgentStateChanged, event => { speaking = event.newState === 'speaking'; });
 
     /**
+     * Flash, show the frame on FaceTime, save, and ask vision for a cue.
      * @param {import('@livekit/rtc-node').VideoFrame} photo
-     * @param {{ preview?: boolean }} [options]
      */
-    const lookAtPhoto = async (photo, options = {}) => {
+    const snapPhoto = async (photo) => {
       flashShutter();
-      if (options.preview) showCapture(photo);
+      // Always show the frame on FaceTime, even when vision cannot describe it.
+      showCapture(photo);
       const result = await takePhotoFromFrame(photo);
-      if (!result.cue || result.cue === lastCue || speaking) return result;
-      lastCue = result.cue;
-      console.log(`[caller-vision] cue: ${result.cue}${result.savedPath ? ` saved=${result.savedPath}` : ''}`);
+      wantsMore = false;
+      const observation = result.cue
+        ? result.cue
+        : (result.seen === false
+          ? 'Your camera looks off or I cannot see you in the frame'
+          : 'I saved that shot');
+      console.log(`[caller-vision] photo: ${observation}${result.savedPath ? ` saved=${result.savedPath}` : ''}`);
+      return { ...result, observation };
+    };
+
+    /** @param {{ observation: string }} result */
+    const announcePhoto = (result) => {
       session.generateReply({
-        instructions: `A new photo of the caller was just taken. You can see them. Say only this observation, in one short sentence: ${result.cue}`,
+        instructions: `Speak English only. You just took a photo and it is showing on your FaceTime video now. Acknowledge that you took the photo, then say this observation in the same short reply: ${result.observation}. Then ask if they want more photos. Do not mention files or folders. Never switch languages.`,
       });
-      return result;
     };
 
     ctx.addShutdownCallback(async () => {
@@ -103,10 +116,10 @@ export default defineAgent({
         instructions,
         tools: {
           take_photo: llm.tool({
-            description: 'Take one photo of the caller right now, look at it, and return what you see. Use when they ask to take a photo or snap a picture.',
+            description: 'Take one photo of the caller right now, show it on FaceTime, and ask if they want more. Use when they ask for a photo, another photo, or say yes to more photos.',
             execute: async () => {
               if (looking) {
-                return { ok: false, message: 'Already looking. Wait a moment.' };
+                return { ok: false, message: 'Already taking a photo. Wait a moment.' };
               }
               const photo = camera.latest();
               if (!photo) {
@@ -115,15 +128,15 @@ export default defineAgent({
               }
               looking = true;
               try {
-                const result = await lookAtPhoto(photo, { preview: true });
+                const result = await snapPhoto(photo);
                 return {
                   ok: result.ok,
-                  message: result.cue ?? result.message,
+                  message: `Speak English only. Acknowledge you took a photo and it is on FaceTime now. Say: ${result.observation}. Then ask if they want more photos. Never switch languages.`,
                 };
               } catch (error) {
                 const message = error instanceof Error ? error.message : String(error);
                 console.warn('[caller-vision] take_photo failed', message);
-                return { ok: false, message: 'I could not check that photo. Try again in a moment.' };
+                return { ok: false, message: 'I could not finish that photo. Ask them to try again.' };
               } finally {
                 looking = false;
               }
@@ -148,7 +161,7 @@ export default defineAgent({
     // on it. Without the signal there is no greeting, and the caller speaks first.
     const stopGreeting = greetOnBridgeReady(ctx.room, () => session.generateReply({ instructions: greeting }));
     lookTimer = setInterval(() => {
-      if (speaking || looking) return;
+      if (!wantsMore || speaking || looking) return;
       const photo = camera.latest();
       if (!photo) {
         if (!announcedWait) {
@@ -158,8 +171,16 @@ export default defineAgent({
         return;
       }
       looking = true;
-      lookAtPhoto(photo).catch(error => {
+      snapPhoto(photo).then(result => {
+        announcePhoto(result);
+      }).catch(error => {
         console.warn('[caller-vision] look failed', error instanceof Error ? error.message : error);
+        wantsMore = false;
+        flashShutter();
+        showCapture(photo);
+        session.generateReply({
+          instructions: 'Speak English only. You just took a photo and it is showing on FaceTime. Acknowledge that you took it, say you could not describe it this time, then ask if they want more photos. Never switch languages.',
+        });
       }).finally(() => { looking = false; });
     }, LOOK_EVERY_MS);
     ctx.addShutdownCallback(async () => stopGreeting());

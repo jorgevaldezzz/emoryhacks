@@ -53,11 +53,11 @@ publishes an audio track, and shows video **only from that same participant**.
 
 ## Caller vision
 
-The agent watches the FaceTime camera and takes a photo about every eight
-seconds. Each photo is saved to `captures/last.png`, sent to the vision model,
-and turned into one short spoken cue (smile, turn away, framing, and so on).
-Say **take a photo** to force a snap and briefly show that frame on the agent's
-video. Later this same capture path will drive skeleton match and countdown.
+The agent watches the FaceTime camera. About eight seconds into the call it
+takes a photo (bright white flash, then the still on its video), saves it under
+`captures/` with a timestamped name, and asks if you want more. Say yes or
+**take a photo** for another. Each shot is sent to vision for a short cue when
+possible; the FaceTime preview still shows even if vision cannot describe it.
 
 ## Change the picture
 
