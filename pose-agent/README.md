@@ -56,9 +56,9 @@ publishes an audio track, and shows video **only from that same participant**.
 You see the animated AI face on FaceTime. About every eight seconds the agent
 silently estimates your pose, compares it to an internal sample skeleton, and
 may coach you — or tell you when you look ready. Those checks never flash or
-preview a still. Say **cheese** for a real 3-2-1 photo (flash + still on
-FaceTime). Empty frames are not saved. Captures land in `captures/` as
-timestamped PNGs.
+preview a still. Say **cheese** for an immediate 3-2-1: shutter flash, still on
+FaceTime, and a timestamped PNG in `captures/` — vision tips run after the snap
+so they never delay the photo.
 
 ## Change the picture
 
