@@ -61,8 +61,11 @@ describe('encode and save capture', () => {
 
     const dir = await mkdtemp(path.join(tmpdir(), 'pose-capture-'));
     try {
-      const saved = await saveCapturePng(encoded.bytes, { dir });
-      assert.equal(saved, path.join(dir, 'last.png'));
+      const at = new Date('2026-11-14T21:46:00.123Z');
+      const saved = await saveCapturePng(encoded.bytes, { dir, at });
+      assert.equal(saved, path.join(dir, '2026-11-14T21-46-00-123Z.png'));
+      const second = await saveCapturePng(encoded.bytes, { dir, at: new Date('2026-11-14T21:46:01.000Z') });
+      assert.equal(second, path.join(dir, '2026-11-14T21-46-01-000Z.png'));
       const roundTrip = await readFile(saved);
       assert.deepEqual(roundTrip, encoded.bytes);
     } finally {
@@ -90,7 +93,7 @@ describe('takePhotoFromFrame', () => {
       assert.equal(result.seen, true);
       assert.equal(result.cue, 'You just turned away from the camera.');
       assert.equal(result.message, 'You just turned away from the camera.');
-      assert.ok(result.savedPath?.endsWith('last.png'));
+      assert.match(result.savedPath ?? '', /\d{4}-\d{2}-\d{2}T.+\.png$/);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

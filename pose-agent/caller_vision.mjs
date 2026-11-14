@@ -205,15 +205,16 @@ export async function encodeFramePng(frame) {
 }
 
 /**
- * Save the newest capture for debugging what the coach saw.
+ * Save a capture with a chronological filename (ISO timestamp, sortable).
  * @param {Buffer} bytes
- * @param {{ dir?: string }} [options]
+ * @param {{ dir?: string, at?: Date }} [options]
  * @returns {Promise<string>}
  */
 export async function saveCapturePng(bytes, options = {}) {
   const dir = options.dir ?? CAPTURE_DIR;
   await mkdir(dir, { recursive: true });
-  const filePath = path.join(dir, 'last.png');
+  const stamp = (options.at ?? new Date()).toISOString().replace(/[:.]/g, '-');
+  const filePath = path.join(dir, `${stamp}.png`);
   await writeFile(filePath, bytes);
   return filePath;
 }
