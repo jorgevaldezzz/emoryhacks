@@ -53,10 +53,10 @@ publishes an audio track, and shows video **only from that same participant**.
 
 ## Caller vision
 
-The agent shows a sample skeleton to line up with. Ask for **guidance** anytime.
-Say **cheese** for a 3-2-1 countdown; it ready-checks first and only saves a
-photo when someone is in frame (FaceTime chrome is cropped out). After a shot it
-asks if you want another — say cheese again when ready. Captures land in
+The agent shows a sample skeleton to line up with. About every eight seconds it
+silently checks your pose against that skeleton and may give a short cue — no
+flash and no photo preview for those checks. Say **cheese** for a real 3-2-1
+photo (flash + still on FaceTime). Empty frames are not saved. Captures land in
 `captures/` as timestamped PNGs.
 
 ## Change the picture
