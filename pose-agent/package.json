@@ -8,13 +8,13 @@
   },
   "scripts": {
     "start": "node --env-file=.env.local agent.mjs start",
-    "check": "node --check agent.mjs && node --check face.mjs && node --check greet.mjs",
+    "check": "node --check agent.mjs && node --check face.mjs && node --check greet.mjs && node --check caller_vision.mjs",
     "help": "node agent.mjs --help"
   },
   "dependencies": {
     "@livekit/agents": "1.8.0",
     "@livekit/agents-plugin-openai": "1.8.0",
-    "@livekit/agents-plugin-xai": "^1.8.0",
+    "@livekit/agents-plugin-xai": "1.8.0",
     "@livekit/rtc-node": "0.13.35"
   }
 }
