@@ -6,8 +6,3 @@ node_modules/
 .DS_Store
 captures/
 
-# User reference photos stay local and are never committed.
-reference-images/*.jpg
-reference-images/*.jpeg
-reference-images/*.png
-!reference-images/.gitkeep
