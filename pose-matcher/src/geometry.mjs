@@ -1,13 +1,15 @@
 /** Instant local pose coaching from MediaPipe landmarks — no vision API round-trip. */
 
 const MIN_CONFIDENCE = 0.35;
-/** Max normalized joint error still counted as a match. */
+/** Max normalized per-joint error still counted as that one joint being dialed in. */
 export const MATCH_TOLERANCE = 0.16;
 /**
- * Loose enough to be worth asking "want the picture now?" instead of nagging over
- * a last small gap, but still well short of a real pose — twice MATCH_TOLERANCE.
+ * Whole-pose accuracy percent — the same number spoken and logged everywhere
+ * else — at or above which chert announces it's good enough and snaps right
+ * away, with no confirmation asked. Lower to accept looser poses sooner; raise
+ * to demand a tighter match before it'll take the photo on its own.
  */
-export const CLOSE_TOLERANCE = MATCH_TOLERANCE * 2;
+export const AUTO_SNAP_ACCURACY_PERCENT = 55;
 /**
  * Stance can be "good enough" to start arm tips before feet are photo-perfect.
  */
@@ -251,36 +253,28 @@ export function comparePoseGeometry({ reference, current, excludeJoints = [] } =
   const summary = errorSummary(JOINTS, ref, cur, excluded);
   const upperOk = !upper || upper.error <= MATCH_TOLERANCE;
   const lowerOk = !lower || lower.error <= MATCH_TOLERANCE;
-  const matched = summary.mean <= MATCH_TOLERANCE && (summary.max <= 0.35 || summary.count < 5);
+
+  // 1.0 (a full shoulder-width off) reads as 0% accuracy; 0 reads as 100%. The
+  // same number drives the auto-snap decision, the spoken accuracy, and the
+  // logged score, so none of them ever read as a different measurement of the
+  // same look — computed from the untrimmed mean, unlike the single-outlier
+  // forgiveness below, since a user-facing score shouldn't hide a bad joint.
+  const accuracyPercent = Math.round(Math.max(0, Math.min(100, 100 * (1 - summary.rawMean))));
+  const score = accuracyPercent / 100;
+
+  // Good enough overall to snap without asking — but not if one joint is
+  // clearly still wrong even if the average looks fine: with 12+ joints, a
+  // single bad one barely dents the average, so the percent gate alone isn't
+  // enough to catch "still working on this one thing" (confirmed by a real
+  // regression here — a 0.5-shoulder-width-off elbow got through at a looser
+  // cap because 12 other joints diluted it to a 92% average).
+  const matched = accuracyPercent >= AUTO_SNAP_ACCURACY_PERCENT && (summary.max <= 0.5 || summary.count < 5);
   if (matched) {
     return {
       ok: true,
       status: 'matched',
       focusJoint: null,
-      feedback: 'Your pose matches the reference. Hold still for the photo.',
-      score: 1,
-      accuracyPercent: 100,
-      goodJoints,
-    };
-  }
-
-  // 1.0 (a full shoulder-width off) reads as 0% accuracy; 0 reads as 100%. Only
-  // reached once "matched" has already failed, so this never shows 100 itself.
-  // The same number drives both the spoken accuracy and the logged score, so the
-  // two never read as two different, conflicting measurements of the same look.
-  const accuracyPercent = Math.round(Math.max(0, Math.min(100, 100 * (1 - summary.rawMean))));
-  const score = accuracyPercent / 100;
-
-  // Close enough overall to be worth offering the picture — the trim above
-  // already forgives exactly one still-imperfect joint (within the max cap), so
-  // this also covers "every limb but one is already within MATCH_TOLERANCE."
-  const close = summary.mean <= CLOSE_TOLERANCE && (summary.max <= 0.5 || summary.count < 5);
-  if (close) {
-    return {
-      ok: true,
-      status: 'close',
-      focusJoint: null,
-      feedback: `You're pretty close to the reference pose, about ${accuracyPercent}% accuracy — want me to go ahead and take the picture?`,
+      feedback: `Good enough — about ${accuracyPercent}% accuracy. Hold still for the photo.`,
       score,
       accuracyPercent,
       goodJoints,
