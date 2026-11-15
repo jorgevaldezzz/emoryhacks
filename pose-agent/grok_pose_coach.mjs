@@ -62,7 +62,8 @@ function coachingPrompt(excludeJoints = []) {
     + 'If they differ, identify the single most important correction and tell the caller exactly which body part to move, in which direction, '
     + 'and where it should align relative to another visible joint. '
     + 'Prefer stance, feet, hips, and torso lean when those differ from the reference; only focus on a wrist or hand when the lower body and torso already look close. '
-    + 'Never invent positions not supported by the drawings. Mark matched only when the visible pose geometry is close. If uncertain, do not guess. '
+    + 'Never invent positions not supported by the drawings. Mark matched whenever the visible pose geometry is reasonably close overall — small, natural differences that would not change the photo are not worth an adjustment; '
+    + 'reserve an adjustment call for a difference that is clearly visible. If genuinely uncertain, for example from occlusion or ambiguous framing, say so rather than guessing a correction. '
     + 'Reply with the required structured result; an adjustment must have focus_joint and one short, specific cue, while matched/uncertain must use focus_joint "none" and cue null.'
     + skip
   );
