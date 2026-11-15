@@ -5,7 +5,8 @@ export function createPoseMatcher({ extractPose, comparePose, onResult = () => {
   if (typeof extractPose !== 'function') throw new TypeError('extractPose is required.');
   if (typeof comparePose !== 'function') throw new TypeError('comparePose is required.');
   let reference = null;
-  let busy = false;
+  /** @type {Promise<object> | null} */
+  let inFlight = null;
   let timer = null;
 
   async function setReference(image) {
@@ -21,9 +22,11 @@ export function createPoseMatcher({ extractPose, comparePose, onResult = () => {
 
   async function check(image) {
     if (!reference) return { ok: false, status: 'reference_missing', feedback: 'Choose a reference photo before checking your pose.' };
-    if (busy) return { ok: false, status: 'check_in_progress', feedback: 'I am checking the last photo. Please wait a moment.' };
-    busy = true;
-    try {
+    // Overlapping silent-look + guide_pose used to return check_in_progress →
+    // the agent spoke nothing for the whole Grok wait. Share one in-flight
+    // comparison so every waiter gets the real adjust/matched result.
+    if (inFlight) return inFlight;
+    inFlight = (async () => {
       const current = await extractPose(image);
       const visibility = checkPoseVisibility(reference, current);
       const comparison = visibility.status === 'pose_visible'
@@ -36,7 +39,8 @@ export function createPoseMatcher({ extractPose, comparePose, onResult = () => {
       };
       await onResult(result);
       return result;
-    } finally { busy = false; }
+    })().finally(() => { inFlight = null; });
+    return inFlight;
   }
 
   function startPeriodic({ getImage, onError = () => {} }) {

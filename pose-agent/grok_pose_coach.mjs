@@ -57,17 +57,20 @@ export function createGrokPoseCoach({ apiKey = process.env.XAI_API_KEY, model = 
       body: JSON.stringify({
         model,
         store: false,
+        // Landmark overlays are a spatial glance, not a reasoning task. Low effort
+        // answers in ~10s; the default often blows past the call's silent-look budget.
+        reasoning: { effort: 'low' },
         input: [{
           role: 'user',
           content: [
-            { type: 'input_text', text: 'Compare these MediaPipe skeleton overlays. Image 1 is the target reference; image 2 is the live caller. Each numbered node maps to the joint name in the right-side legend; use that mapping for focus_joint and spoken directions. left_* and right_* mean the caller’s own anatomical sides, never the side of the screen; the live caller frame was unmirrored before landmark detection. The neutral canvas contains labeled skeletons only, not the original photos. If they differ, identify the single most important correction and tell the caller exactly which body part to move, in which direction, and where it should align relative to another visible joint (for example, move the caller’s left wrist beside their head). Never invent positions not supported by the drawings. Mark matched only when the visible pose geometry is close. If uncertain, do not guess. Reply with the required structured result; an adjustment must have focus_joint and one short, specific cue, while matched/uncertain must use focus_joint "none" and cue null.' },
+            { type: 'input_text', text: 'Compare these MediaPipe skeleton overlays. Image 1 is the target reference; image 2 is the live caller. Each numbered node maps to the joint name in the right-side legend; use that mapping for focus_joint and spoken directions. left_* and right_* mean the caller’s own anatomical sides, never the side of the screen; the live caller frame was unmirrored before landmark detection. The neutral canvas contains labeled skeletons only, not the original photos. Compare only the overlapping visible joints — a waist-up caller can still match the upper body of a full-body reference. If they differ, identify the single most important correction and tell the caller exactly which body part to move, in which direction, and where it should align relative to another visible joint (for example, move the caller’s left wrist beside their head). Never invent positions not supported by the drawings. Mark matched only when the visible pose geometry is close. If uncertain, do not guess. Reply with the required structured result; an adjustment must have focus_joint and one short, specific cue, while matched/uncertain must use focus_joint "none" and cue null.' },
             { type: 'input_image', image_url: referenceOverlay, detail: 'high' },
             { type: 'input_image', image_url: currentOverlay, detail: 'high' },
           ],
         }],
         text: { format: FORMAT },
       }),
-      signal: AbortSignal.timeout(15_000),
+      signal: AbortSignal.timeout(45_000),
     });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
