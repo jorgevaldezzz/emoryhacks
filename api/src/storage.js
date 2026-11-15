@@ -1,7 +1,12 @@
 import { randomUUID } from "node:crypto";
-import fs from "node:fs";
-import path from "node:path";
-import { UPLOAD_DIR, insertGalleryItem, deleteGalleryItem } from "./db.js";
+import {
+  deleteGalleryItem,
+  findGalleryItemForUser,
+  GALLERY_QUOTA_BYTES,
+  insertGalleryItem,
+} from "./db.js";
+
+export const MAX_GALLERY_IMAGE_BYTES = 8 * 1024 * 1024;
 
 const ALLOWED_MIME = new Set([
   "image/jpeg",
@@ -10,27 +15,6 @@ const ALLOWED_MIME = new Set([
   "image/gif",
 ]);
 
-/**
- * @param {string} mime
- */
-export function extensionForMime(mime) {
-  switch (mime) {
-    case "image/jpeg":
-      return ".jpg";
-    case "image/png":
-      return ".png";
-    case "image/webp":
-      return ".webp";
-    case "image/gif":
-      return ".gif";
-    default:
-      return ".bin";
-  }
-}
-
-/**
- * @param {string} mime
- */
 export function assertAllowedMime(mime) {
   if (!ALLOWED_MIME.has(mime)) {
     const err = new Error("Only JPEG, PNG, WebP, and GIF images are allowed");
@@ -39,85 +23,52 @@ export function assertAllowedMime(mime) {
   }
 }
 
-/**
- * Persist an image buffer and create a gallery row for the user.
- * @param {{
- *   userId: string,
- *   buffer: Buffer,
- *   mime: string,
- *   originalName?: string | null,
- *   note?: string | null,
- *   source?: string,
- * }} input
- */
-export function saveGalleryImage(input) {
+export async function saveGalleryImage(input) {
   assertAllowedMime(input.mime);
   if (!input.buffer?.length) {
     const err = new Error("Image data is empty");
     err.status = 400;
     throw err;
   }
-  // ~8 MB soft limit for a single gallery image.
-  if (input.buffer.length > 8 * 1024 * 1024) {
-    const err = new Error("Image is too large (max 8MB)");
+  if (input.buffer.length > MAX_GALLERY_IMAGE_BYTES) {
+    const err = new Error("Image is too large (max 8 MiB)");
     err.status = 413;
     throw err;
   }
 
-  fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-  const id = randomUUID();
-  const filename = `${id}${extensionForMime(input.mime)}`;
-  const diskPath = path.join(UPLOAD_DIR, filename);
-  fs.writeFileSync(diskPath, input.buffer);
-
-  const createdAt = new Date().toISOString();
-  insertGalleryItem({
-    id,
+  const item = {
+    _id: randomUUID(),
     userId: input.userId,
-    filename,
+    image: input.buffer,
+    mimeType: input.mime,
+    byteSize: input.buffer.length,
     originalName: input.originalName ?? null,
     note: input.note ?? null,
     source: input.source || "upload",
-    createdAt,
-  });
+    createdAt: new Date().toISOString(),
+  };
+  const saved = await insertGalleryItem(item);
+  if (!saved) {
+    const quotaMiB = Math.floor(GALLERY_QUOTA_BYTES / (1024 * 1024));
+    const err = new Error(`Gallery storage limit reached (${quotaMiB} MiB per account)`);
+    err.status = 413;
+    throw err;
+  }
 
   return {
-    id,
-    filename,
-    originalName: input.originalName ?? null,
-    note: input.note ?? null,
-    source: input.source || "upload",
-    createdAt,
+    id: item._id,
+    originalName: item.originalName,
+    note: item.note,
+    source: item.source,
+    createdAt: item.createdAt,
+    byteSize: item.byteSize,
   };
 }
 
-/**
- * @param {string} id
- * @param {string} userId
- */
-export function removeGalleryImage(id, userId) {
-  const item = deleteGalleryItem(id, userId);
-  if (!item) return null;
-  const diskPath = path.join(UPLOAD_DIR, item.filename);
-  try {
-    fs.unlinkSync(diskPath);
-  } catch {
-    // Missing file is fine — DB row is already gone.
-  }
-  return item;
+export async function removeGalleryImage(id, userId) {
+  return deleteGalleryItem(id, userId);
 }
 
-/**
- * Absolute path for a stored filename (path-traversal safe).
- * @param {string} filename
- */
-export function resolveUploadPath(filename) {
-  const base = path.resolve(UPLOAD_DIR);
-  const full = path.resolve(UPLOAD_DIR, path.basename(filename));
-  if (!full.startsWith(base + path.sep) && full !== base) {
-    const err = new Error("Invalid filename");
-    err.status = 400;
-    throw err;
-  }
-  return full;
+export async function getGalleryImage(id, userId) {
+  return findGalleryItemForUser(id, userId);
 }

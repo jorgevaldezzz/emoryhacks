@@ -62,7 +62,7 @@ export async function signup({ email, password, name }) {
     err.status = 400;
     throw err;
   }
-  if (findUserByEmail(normalized)) {
+  if (await findUserByEmail(normalized)) {
     const err = new Error("An account with that email already exists");
     err.status = 409;
     throw err;
@@ -77,7 +77,16 @@ export async function signup({ email, password, name }) {
     passwordHash,
     createdAt: new Date().toISOString(),
   };
-  insertUser(user);
+  try {
+    await insertUser(user);
+  } catch (err) {
+    if (err?.code === 11000) {
+      const duplicate = new Error("An account with that email already exists");
+      duplicate.status = 409;
+      throw duplicate;
+    }
+    throw err;
+  }
   return publicUser(user);
 }
 
@@ -86,13 +95,13 @@ export async function signup({ email, password, name }) {
  */
 export async function login({ email, password }) {
   const normalized = String(email || "").trim().toLowerCase();
-  const row = findUserByEmail(normalized);
+  const row = await findUserByEmail(normalized);
   if (!row) {
     const err = new Error("Invalid email or password");
     err.status = 401;
     throw err;
   }
-  const ok = await verifyPassword(String(password || ""), row.password_hash);
+  const ok = await verifyPassword(String(password || ""), row.passwordHash);
   if (!ok) {
     const err = new Error("Invalid email or password");
     err.status = 401;
@@ -104,8 +113,8 @@ export async function login({ email, password }) {
 /**
  * @param {string} userId
  */
-export function getPublicUser(userId) {
-  const row = findUserById(userId);
+export async function getPublicUser(userId) {
+  const row = await findUserById(userId);
   return row ? publicUser(row) : null;
 }
 
@@ -114,7 +123,7 @@ export function getPublicUser(userId) {
  */
 export function publicUser(row) {
   return {
-    id: row.id,
+    id: row.id || row._id,
     email: row.email,
     name: row.name,
     createdAt: row.createdAt || row.created_at,

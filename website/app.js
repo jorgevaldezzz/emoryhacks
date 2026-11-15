@@ -119,7 +119,9 @@ function clearUpload() {
 async function api(pathname, options = {}) {
   const base = apiBase();
   if (!base) {
-    throw new Error("Set IMPHOTOGENIC_API_URL to your API server");
+    throw new Error(
+      "The account service is not configured for this site. Set IMPHOTOGENIC_API_URL to the deployed API address.",
+    );
   }
 
   const headers = { ...(options.headers || {}) };
