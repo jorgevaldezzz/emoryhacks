@@ -40,10 +40,11 @@ def create_landmarker():
 def detect(landmarker, encoded):
     raw = base64.b64decode(encoded, validate=True)
     image = Image.open(BytesIO(raw)).convert("RGB")
+    image_width, image_height = image.size
     pixels = np.asarray(image)
     result = landmarker.detect(mp.Image(image_format=mp.ImageFormat.SRGB, data=pixels))
     if not result.pose_landmarks:
-        return {"personVisible": False, "landmarks": {}}
+        return {"personVisible": False, "imageWidth": image_width, "imageHeight": image_height, "landmarks": {}}
     landmarks = {}
     for name, point in zip(NAMES, result.pose_landmarks[0]):
         visibility = float(point.visibility) if point.visibility is not None else 1.0
@@ -57,7 +58,7 @@ def detect(landmarker, encoded):
             "z": float(point.z),
             "confidence": confidence,
         }
-    return {"personVisible": True, "landmarks": landmarks}
+    return {"personVisible": True, "imageWidth": image_width, "imageHeight": image_height, "landmarks": landmarks}
 
 
 def main():
