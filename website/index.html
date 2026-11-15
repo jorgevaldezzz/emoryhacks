@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Emory Hacks — Pose Studio</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Sora:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="atmosphere" aria-hidden="true"></div>
+
+    <header class="site-header">
+      <p class="brand">Emory Hacks</p>
+    </header>
+
+    <main>
+      <section class="hero">
+        <div class="hero-copy">
+          <h1>Pose Studio</h1>
+          <p class="lede">
+            Match a reference skeleton, get live coaching, and snap when the
+            frame lines up.
+          </p>
+          <div class="cta-row">
+            <a class="cta primary" href="#setup">Open the workspace</a>
+            <a class="cta ghost" href="./README.md">Talk to Figma setup</a>
+          </div>
+        </div>
+        <div class="hero-visual" role="img" aria-label="Abstract skeleton guide silhouette">
+          <svg class="skeleton" viewBox="0 0 320 480" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle class="joint" cx="160" cy="56" r="22" />
+            <path class="bone" d="M160 78 V160" />
+            <path class="bone" d="M90 120 H230" />
+            <path class="bone" d="M90 120 L54 210" />
+            <path class="bone" d="M230 120 L266 210" />
+            <circle class="joint" cx="90" cy="120" r="8" />
+            <circle class="joint" cx="230" cy="120" r="8" />
+            <circle class="joint" cx="54" cy="210" r="8" />
+            <circle class="joint" cx="266" cy="210" r="8" />
+            <circle class="joint" cx="160" cy="160" r="10" />
+            <path class="bone" d="M160 160 L112 300" />
+            <path class="bone" d="M160 160 L208 300" />
+            <circle class="joint" cx="112" cy="300" r="8" />
+            <circle class="joint" cx="208" cy="300" r="8" />
+            <path class="bone" d="M112 300 L96 420" />
+            <path class="bone" d="M208 300 L224 420" />
+            <circle class="joint" cx="96" cy="420" r="8" />
+            <circle class="joint" cx="224" cy="420" r="8" />
+          </svg>
+        </div>
+      </section>
+
+      <section id="setup" class="setup">
+        <h2>Figma → Cursor</h2>
+        <p>
+          This folder ships with TalkToFigma MCP so you can read and update
+          designs from Cursor while you build the site.
+        </p>
+        <ol>
+          <li>Install <a href="https://bun.sh">Bun</a>.</li>
+          <li>Open this <code>website/</code> folder in Cursor so <code>.cursor/mcp.json</code> loads.</li>
+          <li>Run the TalkToFigma WebSocket relay: <code>bunx cursor-talk-to-figma-mcp@latest</code> socket flow, or follow the package docs (<code>bun socket</code>).</li>
+          <li>In Figma, run the Cursor MCP plugin and join the same channel.</li>
+        </ol>
+      </section>
+    </main>
+
+    <script src="./main.js"></script>
+  </body>
+</html>
