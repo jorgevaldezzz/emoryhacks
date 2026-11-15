@@ -116,6 +116,23 @@ export function watchCallerCamera(room, caller) {
 }
 
 /**
+ * Mirror a frame's pixels horizontally, as raw RGBA (not PNG). judgeFrame detects
+ * landmarks on the unmirrored (flopped) frame, so anything drawing those landmarks
+ * back onto a frame — like the debug skeleton — needs this, not the raw caller frame,
+ * or every joint lands mirrored into whatever padding sits on the opposite side.
+ * @param {VideoFrame} frame
+ * @returns {Promise<VideoFrame | null>}
+ */
+export async function mirrorFrameHorizontally(frame) {
+  const rgba = frame.type === VideoBufferType.RGBA ? frame : frame.convert(VideoBufferType.RGBA);
+  if (!rgba?.data?.length || !rgba.width || !rgba.height) return null;
+  const { data, info } = await sharp(Buffer.from(rgba.data), {
+    raw: { width: rgba.width, height: rgba.height, channels: 4 },
+  }).flop().raw().toBuffer({ resolveWithObject: true });
+  return new VideoFrame(new Uint8Array(data), info.width, info.height, VideoBufferType.RGBA);
+}
+
+/**
  * Encode a camera frame as PNG bytes for MediaPipe or disk.
  * Preserves aspect ratio. Never force a square — that was squashing cheese snaps
  * after the FaceTime chrome crop. Optional maxSide only downscales with fit:inside.

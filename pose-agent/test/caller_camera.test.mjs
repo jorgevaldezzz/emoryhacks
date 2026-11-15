@@ -5,7 +5,7 @@ import path from 'node:path';
 import { describe, it } from 'node:test';
 import sharp from 'sharp';
 import { VideoBufferType, VideoFrame } from '@livekit/rtc-node';
-import { encodeFramePng, saveCapturePng, saveFrameCapture } from '../caller_camera.mjs';
+import { encodeFramePng, mirrorFrameHorizontally, saveCapturePng, saveFrameCapture } from '../caller_camera.mjs';
 import { drawFace } from '../face.mjs';
 
 describe('encode and save caller frames', () => {
@@ -25,6 +25,25 @@ describe('encode and save caller frames', () => {
     const capturePixels = await sharp(storedCapture.bytes).ensureAlpha().raw().toBuffer();
     assert.deepEqual(inferencePixels, Buffer.from(original));
     assert.deepEqual(capturePixels, Buffer.from(mirrored));
+    assert.deepEqual(mirroredFrame.data, mirrored);
+  });
+
+  it('mirrorFrameHorizontally matches the frame judgeFrame actually detected landmarks on', async () => {
+    const original = Uint8Array.from([
+      255, 0, 0, 255, 0, 255, 0, 255,
+      0, 0, 255, 255, 255, 255, 0, 255,
+    ]);
+    const mirrored = Uint8Array.from([
+      ...original.slice(12, 16), ...original.slice(8, 12),
+      ...original.slice(4, 8), ...original.slice(0, 4),
+    ]);
+    const mirroredFrame = new VideoFrame(mirrored, 4, 1, VideoBufferType.RGBA);
+    const unmirrored = await mirrorFrameHorizontally(mirroredFrame);
+    // Same pixels judgeFrame fed to MediaPipe — flopping the raw caller frame once.
+    assert.deepEqual(unmirrored.data, original);
+    assert.equal(unmirrored.width, 4);
+    assert.equal(unmirrored.height, 1);
+    // The raw caller frame itself is untouched.
     assert.deepEqual(mirroredFrame.data, mirrored);
   });
 

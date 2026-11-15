@@ -3,9 +3,13 @@ import { readFile } from 'node:fs/promises';
 import { describe, it } from 'node:test';
 import {
   afterCoachObservation,
+  confirmGoodLimb,
+  emptyCoachMemory,
+  excludeJointsAfterRepeats,
   excludeJointsForCompare,
   nextCoachStep,
   shouldSpeakPoseCue,
+  trackStuckJoint,
 } from '../coach_flow.mjs';
 
 describe('nextCoachStep', () => {
@@ -120,6 +124,112 @@ describe('nextCoachStep', () => {
     );
     assert.equal(step.action, 'wait');
     assert.equal(step.autoSnapArmed, false);
+  });
+
+  it('asks instead of auto-snapping when the pose is merely close, and does not repeat the ask', () => {
+    const close = {
+      status: 'close',
+      focusJoint: null,
+      feedback: "You're pretty close to the reference pose — want me to go ahead and take the picture?",
+    };
+    const step = nextCoachStep(close, { autoSnapArmed: true });
+    assert.equal(step.action, 'coach');
+    assert.equal(step.say, close.feedback);
+    assert.equal(step.autoSnapArmed, true);
+
+    // No focusJoint means shouldSpeakPoseCue alone would never suppress a repeat —
+    // afterCoachObservation must still remember the cue text itself.
+    let memory = afterCoachObservation(
+      { lastFocusJoint: null, lastCue: '', spokenJoints: new Set() },
+      close,
+      step.say,
+    );
+    assert.equal(memory.lastCue, close.feedback);
+    assert.equal(memory.lastFocusJoint, null);
+  });
+
+  it('forces a different body part once two joints keep ping-ponging back and forth', () => {
+    // shouldSpeakPoseCue only ever blocks the joint that was JUST spoken, so an
+    // A→B→A→B pattern never trips it — that's exactly the case this guards.
+    let memory = emptyCoachMemory();
+    const speak = (focusJoint, cue) => {
+      memory = afterCoachObservation(memory, { status: 'adjust', focusJoint }, cue);
+    };
+    speak('left_wrist', 'Lift your left wrist.'); // fresh: repeatStreak 0
+    assert.equal(memory.repeatStreak, 0);
+    speak('right_wrist', 'Lower your right wrist.'); // fresh: repeatStreak 0
+    assert.equal(memory.repeatStreak, 0);
+    speak('left_wrist', 'Lift your left wrist.'); // back to a covered joint: 1
+    assert.equal(memory.repeatStreak, 1);
+    assert.deepEqual(excludeJointsAfterRepeats(memory), []); // not yet — give it one more try
+    speak('right_wrist', 'Lower your right wrist.'); // covered again: 2 — switch now
+    assert.equal(memory.repeatStreak, 2);
+    const excluded = excludeJointsAfterRepeats(memory);
+    assert.ok(excluded.includes('left_wrist'));
+    assert.ok(excluded.includes('right_wrist'));
+  });
+
+  it('forces a switch off a joint stuck as the worst one for several looks, even though it never got re-spoken', () => {
+    // The actual bug this guards: shouldSpeakPoseCue silences every look after the
+    // first once the SAME joint keeps coming back (no ping-pong needed) — so
+    // repeatStreak (spoken-cue-only) never moves, and coaching could go mute for
+    // the rest of the call. trackStuckJoint runs on every look regardless.
+    let memory = emptyCoachMemory();
+    memory = { ...memory, ...trackStuckJoint(memory, 'left_wrist') }; // look 1: spoken
+    memory = afterCoachObservation(memory, { status: 'adjust', focusJoint: 'left_wrist' }, 'Lift your left wrist.');
+    assert.equal(memory.repeatStreak, 0); // spoken-cue counter never saw a repeat
+
+    memory = { ...memory, ...trackStuckJoint(memory, 'left_wrist') }; // look 2: shouldSpeakPoseCue would silence this
+    assert.equal(memory.stuckCount, 2);
+    assert.deepEqual(excludeJointsAfterRepeats(memory), ['left_wrist']); // switch now, despite repeatStreak still 0
+  });
+
+  it('does not exclude anything while a joint is freshly covered, or once the pose matches', () => {
+    assert.deepEqual(excludeJointsAfterRepeats(emptyCoachMemory()), []);
+    let memory = afterCoachObservation(emptyCoachMemory(), { status: 'adjust', focusJoint: 'left_hip' }, 'Shift your hips.');
+    assert.deepEqual(excludeJointsAfterRepeats(memory), []);
+    memory = afterCoachObservation(memory, { status: 'matched', ready: true }, null);
+    assert.deepEqual(excludeJointsAfterRepeats(memory), []);
+  });
+
+  it('only confirms a good limb once coaching is already about to force a switch, not on every look', () => {
+    const judged = { goodJoints: ['right_shoulder', 'left_hip'] };
+    // repeatStreak alone means nothing without joints it actually ties to —
+    // matches the shape afterCoachObservation really produces.
+    const stuck = (repeatStreak, confirmedGoodJoints = new Set()) =>
+      ({ repeatStreak, spokenJoints: new Set(['left_wrist']), confirmedGoodJoints });
+    assert.equal(confirmGoodLimb(judged, stuck(0)), null);
+    assert.equal(confirmGoodLimb(judged, stuck(1)), null);
+    const confirmation = confirmGoodLimb(judged, stuck(2));
+    assert.equal(confirmation.focusJoint, 'right_shoulder');
+    assert.match(confirmation.feedback, /right shoulder/);
+    assert.match(confirmation.feedback, /good/i);
+    // Already confirmed — move to the next unconfirmed good joint instead.
+    const next = confirmGoodLimb(judged, stuck(2, new Set(['right_shoulder'])));
+    assert.equal(next.focusJoint, 'left_hip');
+    // Nothing left to confirm once every good joint already has been.
+    assert.equal(confirmGoodLimb(judged, stuck(2, new Set(['right_shoulder', 'left_hip']))), null);
+  });
+
+  it('tracks a confirmed-good joint separately from corrections, and forgets it once it drifts back out', () => {
+    let memory = emptyCoachMemory();
+    memory = afterCoachObservation(
+      memory,
+      { status: 'confirm_good', focusJoint: 'right_shoulder', goodJoints: ['right_shoulder'] },
+      "Your right shoulder is good — don't move it, keep it right where it is.",
+    );
+    assert.ok(memory.confirmedGoodJoints.has('right_shoulder'));
+    assert.equal(memory.repeatStreak, 0); // confirmations never count toward the repeat-switch streak
+    assert.equal(memory.spokenJoints.size, 0); // and never occupy a correction slot either
+
+    // It drifted back out of tolerance — goodJoints no longer lists it — so the
+    // next correction prunes the stale confirmation.
+    memory = afterCoachObservation(
+      memory,
+      { status: 'adjust', focusJoint: 'left_wrist', goodJoints: [] },
+      'Lift your left wrist.',
+    );
+    assert.equal(memory.confirmedGoodJoints.has('right_shoulder'), false);
   });
 });
 

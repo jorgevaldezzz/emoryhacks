@@ -1,5 +1,12 @@
 import { checkPoseVisibility } from './compare.mjs';
 
+/**
+ * MediaPipe runs single-shot per frame with no temporal smoothing, so one blurry
+ * frame — often just the caller moving — can report zero landmarks outright.
+ * Tolerate this many consecutive visibility misses before believing it.
+ */
+export const VISIBILITY_MISS_TOLERANCE = 1;
+
 /** Build a reference-pose comparison flow with injected local inference and coaching. */
 export function createPoseMatcher({ extractPose, comparePose, onResult = () => {}, intervalMs = 12_000, now = Date.now }) {
   if (typeof extractPose !== 'function') throw new TypeError('extractPose is required.');
@@ -8,6 +15,7 @@ export function createPoseMatcher({ extractPose, comparePose, onResult = () => {
   /** @type {Promise<object> | null} */
   let inFlight = null;
   let timer = null;
+  let visibilityMissStreak = 0;
 
   async function setReference(image) {
     const pose = await extractPose(image);
@@ -29,6 +37,22 @@ export function createPoseMatcher({ extractPose, comparePose, onResult = () => {
     inFlight = (async () => {
       const current = await extractPose(image);
       const visibility = checkPoseVisibility(reference, current);
+      const missed = visibility.status === 'person_not_visible' || visibility.status === 'insufficient_visibility';
+      visibilityMissStreak = missed ? visibilityMissStreak + 1 : 0;
+      // A single miss is likely a blurry frame, not the caller leaving — stay quiet
+      // about it and let the next look confirm before coaching reacts.
+      if (missed && visibilityMissStreak <= VISIBILITY_MISS_TOLERANCE) {
+        const result = {
+          ok: true,
+          status: 'visibility_glitch',
+          coverage: visibility.coverage,
+          feedback: null,
+          landmarks: current?.landmarks ?? {},
+          checkedAt: new Date(now()).toISOString(),
+        };
+        await onResult(result);
+        return result;
+      }
       const comparison = visibility.status === 'pose_visible'
         ? await comparePose({ reference, current })
         : visibility;

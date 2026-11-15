@@ -38,10 +38,31 @@ export const noSpeech = 'TOOL_SILENT';
 
 /**
  * Empty coaching memory for a new call or after a successful match/snap.
- * @returns {{ lastFocusJoint: null, lastCue: string, spokenJoints: Set<string> }}
+ * @returns {{ lastFocusJoint: null, lastCue: string, spokenJoints: Set<string>, repeatStreak: number, confirmedGoodJoints: Set<string>, stuckJoint: null, stuckCount: number }}
  */
 export function emptyCoachMemory() {
-  return { lastFocusJoint: null, lastCue: '', spokenJoints: new Set() };
+  return {
+    lastFocusJoint: null, lastCue: '', spokenJoints: new Set(),
+    repeatStreak: 0, confirmedGoodJoints: new Set(),
+    stuckJoint: null, stuckCount: 0,
+  };
+}
+
+/**
+ * Count consecutive LOOKS (not just spoken cues) naming the same worst joint.
+ * A stuck joint goes silent after its first utterance — shouldSpeakPoseCue
+ * suppresses any repeat of the immediately-previous joint — so counting only
+ * spoken cues would never notice it's stayed the worst joint call after call
+ * with nothing new ever said about it. Call this on every look, independent
+ * of whether anything actually gets spoken.
+ * @param {{ stuckJoint?: string | null, stuckCount?: number }} memory
+ * @param {string | null | undefined} focusJoint
+ * @returns {{ stuckJoint: string | null, stuckCount: number }}
+ */
+export function trackStuckJoint(memory, focusJoint) {
+  if (!focusJoint) return { stuckJoint: null, stuckCount: 0 };
+  const stuckCount = focusJoint === memory?.stuckJoint ? (memory?.stuckCount ?? 0) + 1 : 1;
+  return { stuckJoint: focusJoint, stuckCount };
 }
 
 /**
@@ -51,6 +72,53 @@ export function emptyCoachMemory() {
  */
 export function excludeJointsForCompare(spokenJoints) {
   return [...(spokenJoints ?? [])].filter(Boolean);
+}
+
+/** After this many repeats (spoken or silent) of the same ground, force a switch. */
+export const REPEAT_SWITCH_THRESHOLD = 2;
+
+/**
+ * Geometry coaching sticks on one joint by design (shouldSpeakPoseCue only
+ * suppresses a change from the IMMEDIATELY previous joint), so a genuinely stuck
+ * joint keeps getting named instead of going silent. Two failure shapes to catch:
+ * the SAME joint staying the worst one look after look (goes fully silent after
+ * the first utterance — caught by stuckJoint/stuckCount, which track every look),
+ * and two joints ping-ponging back and forth, neither ever resolving (each flip
+ * does get spoken, since it differs from the immediately-previous one — caught by
+ * repeatStreak, which only tracks spoken cues). Once either has happened enough
+ * times, force a different body part next.
+ * @param {{ repeatStreak?: number, spokenJoints?: Set<string>, stuckJoint?: string | null, stuckCount?: number }} memory
+ * @returns {string[]}
+ */
+export function excludeJointsAfterRepeats(memory) {
+  const joints = new Set();
+  if ((memory?.repeatStreak ?? 0) >= REPEAT_SWITCH_THRESHOLD) {
+    for (const joint of excludeJointsForCompare(memory?.spokenJoints)) joints.add(joint);
+  }
+  if ((memory?.stuckCount ?? 0) >= REPEAT_SWITCH_THRESHOLD && memory?.stuckJoint) {
+    joints.add(memory.stuckJoint);
+  }
+  return [...joints];
+}
+
+/**
+ * At the same moment coaching is about to force a switch away from a
+ * stuck/ping-ponging joint, confirm a limb that's already right instead of
+ * immediately piling on a different correction — "your right arm is good,
+ * don't move it" — before normal coaching resumes on the next look. Not
+ * offered on every look: with most joints starting "good" by coincidence,
+ * confirming all of them before any real correction would just stall coaching.
+ * @param {{ goodJoints?: string[] }} judged
+ * @param {object} memory
+ * @returns {{ focusJoint: string, feedback: string } | null}
+ */
+export function confirmGoodLimb(judged, memory) {
+  if (!excludeJointsAfterRepeats(memory).length) return null;
+  const confirmed = memory?.confirmedGoodJoints ?? new Set();
+  const toConfirm = (judged?.goodJoints ?? []).find(joint => !confirmed.has(joint));
+  if (!toConfirm) return null;
+  const label = toConfirm.replaceAll('_', ' ');
+  return { focusJoint: toConfirm, feedback: `Your ${label} is good — don't move it, keep it right where it is.` };
 }
 
 /**
@@ -81,15 +149,45 @@ export function afterCoachObservation(memory, judged, spokenCue) {
   if (status === 'matched' || judged?.ready === true) {
     return emptyCoachMemory();
   }
-  if (spokenCue && judged?.focusJoint) {
+  if (spokenCue) {
+    // A no-joint cue (e.g. "you're close, want the picture?") still needs to land
+    // in lastCue so followCoachStep's repeat check can quiet it on the next look —
+    // shouldSpeakPoseCue never blocks a null-joint cue by joint, only this does.
     const spokenJoints = new Set(memory.spokenJoints);
-    // After covering several regions, allow revisiting so a half-fixed wrist can be refined.
-    if (spokenJoints.size >= 5) spokenJoints.clear();
-    spokenJoints.add(judged.focusJoint);
+    let lastFocusJoint = memory.lastFocusJoint;
+    let repeatStreak = memory.repeatStreak ?? 0;
+    // A joint confirmed good can drift back out of tolerance later and get fixed
+    // again — only keep confirmations for joints this look still reports good.
+    const stillGood = new Set(judged?.goodJoints ?? []);
+    const confirmedGoodJoints = new Set(
+      [...(memory.confirmedGoodJoints ?? [])].filter(joint => stillGood.has(joint)),
+    );
+    if (judged?.focusJoint) {
+      lastFocusJoint = judged.focusJoint;
+      if (judged.status === 'confirm_good') {
+        confirmedGoodJoints.add(judged.focusJoint);
+      } else {
+        // Landing back on a joint we've already nagged about (shouldSpeakPoseCue
+        // only ever suppresses it changing from the IMMEDIATELY previous one, so
+        // two joints can still ping-pong forever) counts as a repeat; a fresh
+        // joint resets it.
+        repeatStreak = spokenJoints.has(judged.focusJoint) ? repeatStreak + 1 : 0;
+        // After covering several regions, allow revisiting so a half-fixed wrist can be refined.
+        if (spokenJoints.size >= 5) spokenJoints.clear();
+        spokenJoints.add(judged.focusJoint);
+      }
+    }
     return {
-      lastFocusJoint: judged.focusJoint,
+      lastFocusJoint,
       lastCue: spokenCue,
       spokenJoints,
+      repeatStreak,
+      confirmedGoodJoints,
+      // trackStuckJoint owns these — called separately, on every look, not just
+      // spoken ones. Carry them through untouched so this reassignment doesn't
+      // wipe them back to nothing the moment anything gets spoken.
+      stuckJoint: memory.stuckJoint ?? null,
+      stuckCount: memory.stuckCount ?? 0,
     };
   }
   return memory;

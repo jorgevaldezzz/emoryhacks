@@ -31,6 +31,8 @@ describe('createPoseMatcher', () => {
       comparePose: async () => { comparisons += 1; return { ok: true, status: 'adjust', focusJoint: 'left_wrist', feedback: 'Move your left wrist beside your temple.' }; },
     });
     await matcher.setReference('reference');
+    // First miss is debounced (visibility_glitch) — a second consecutive miss confirms it.
+    await matcher.check('current');
     const hidden = await matcher.check('current');
     assert.equal(hidden.status, 'person_not_visible');
     assert.equal(comparisons, 0);
@@ -39,6 +41,29 @@ describe('createPoseMatcher', () => {
     assert.equal(visible.status, 'adjust');
     assert.equal(visible.focusJoint, 'left_wrist');
     assert.equal(comparisons, 1);
+  });
+
+  it('debounces a single visibility miss instead of reporting it immediately', async () => {
+    let current = clearPose;
+    let comparisons = 0;
+    const matcher = createPoseMatcher({
+      extractPose: async image => image === 'reference' ? clearPose : current,
+      comparePose: async () => { comparisons += 1; return { ok: true, status: 'matched' }; },
+    });
+    await matcher.setReference('reference');
+    current = { personVisible: false, landmarks: {} };
+    const glitch = await matcher.check('current');
+    assert.equal(glitch.status, 'visibility_glitch');
+    assert.equal(comparisons, 0);
+    // A visible frame right after the blip resets the streak — no false alarm at all.
+    current = clearPose;
+    const recovered = await matcher.check('current');
+    assert.equal(recovered.status, 'matched');
+    // Two misses in a row is the real thing.
+    current = { personVisible: false, landmarks: {} };
+    await matcher.check('current');
+    const confirmed = await matcher.check('current');
+    assert.equal(confirmed.status, 'person_not_visible');
   });
 
   it('lets overlapping checks await the same in-flight comparison instead of check_in_progress', async () => {

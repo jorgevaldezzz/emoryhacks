@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { comparePoseGeometry, cueForDelta, MATCH_TOLERANCE } from '../src/geometry.mjs';
+import { CLOSE_TOLERANCE, comparePoseGeometry, cueForDelta, MATCH_TOLERANCE } from '../src/geometry.mjs';
 
 const point = (x, y, confidence = 0.95) => ({ x, y, confidence });
 function pose(shiftWrist = 0) {
@@ -54,6 +54,23 @@ describe('comparePoseGeometry', () => {
     assert.match(result.feedback, /lift|upward|ceiling/i);
     assert.match(result.feedback, /not closer to the camera/i);
     assert.doesNotMatch(result.feedback, /^Raise your .+ higher\.$/);
+    // One joint a full shoulder-width off, diluted across the other 12 — not 100%,
+    // since that would contradict being told to fix something.
+    assert.match(result.feedback, /\d+% accuracy/);
+    assert.ok(result.accuracyPercent < 100, 'adjust must never report 100% accuracy');
+  });
+
+  it('moves an arm that needs to reach farther out or pull in, not just up/down', () => {
+    const reference = pose();
+    const current = pose();
+    // Reference wrist reaches out diagonally from the shoulder; live wrist sits on
+    // the same diagonal but tucked in close — dx and dy are equal, so the plain
+    // up/down-vs-left/right pick is a coin flip; reach is the real, unambiguous gap.
+    reference.landmarks.right_wrist = point(0.9, 0.58);
+    current.landmarks.right_wrist = point(0.72, 0.4);
+    const result = comparePoseGeometry({ reference, current });
+    assert.equal(result.focusJoint, 'right_wrist');
+    assert.match(result.feedback, /farther away from your body/i);
   });
 
   it('prefers a stance gap over an arm gap until the lower body is close', () => {
@@ -87,5 +104,50 @@ describe('comparePoseGeometry', () => {
     assert.equal(result.status, 'adjust');
     assert.notEqual(result.focusJoint, 'right_wrist');
     assert.equal(result.focusJoint, 'left_elbow');
+  });
+
+  it('offers to take the picture when the whole pose is close but not a perfect match', () => {
+    assert.equal(CLOSE_TOLERANCE, MATCH_TOLERANCE * 2);
+    const reference = pose();
+    const current = pose();
+    // Nudge every joint but the shoulders (which set origin/scale) by the same
+    // amount — close to the reference everywhere, but not inside MATCH_TOLERANCE.
+    for (const [key, landmark] of Object.entries(current.landmarks)) {
+      if (key === 'left_shoulder' || key === 'right_shoulder') continue;
+      landmark.x += 0.05;
+    }
+    const result = comparePoseGeometry({ reference, current });
+    assert.equal(result.status, 'close');
+    assert.equal(result.focusJoint, null);
+    assert.match(result.feedback, /pretty close/i);
+    assert.match(result.feedback, /take the picture/i);
+  });
+});
+
+describe('comparePoseGeometry across differing aspect ratios', () => {
+  // A portrait reference photo vs. a landscape-cropped live FaceTime frame used to
+  // get compared as if x/y fractions were directly interchangeable, which inflated
+  // leg/arm error by roughly the ratio of the two aspect ratios — chert kept coaching
+  // leg corrections that didn't exist. Re-express the identical real pixel stance on
+  // a wider canvas: y fractions (same imageHeight) stay put, x fractions halve
+  // (double the imageWidth) — the same absolute pose, just a different aspect ratio.
+  const reshapeToWiderCanvas = sourcePose => {
+    const reshaped = structuredClone(sourcePose);
+    for (const landmark of Object.values(reshaped.landmarks)) landmark.x /= 2;
+    return reshaped;
+  };
+
+  it('recognizes the same stance as matched once imageWidth/imageHeight correct for aspect ratio', () => {
+    const reference = { ...pose(), imageWidth: 1000, imageHeight: 1000 };
+    const current = { ...reshapeToWiderCanvas(pose()), imageWidth: 2000, imageHeight: 1000 };
+    const result = comparePoseGeometry({ reference, current });
+    assert.equal(result.status, 'matched');
+  });
+
+  it('documents the bug this guards: without imageWidth/imageHeight the identical stance looks mismatched', () => {
+    const reference = pose();
+    const current = reshapeToWiderCanvas(pose());
+    const result = comparePoseGeometry({ reference, current });
+    assert.notEqual(result.status, 'matched');
   });
 });
