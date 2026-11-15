@@ -93,6 +93,11 @@ img {
   gap: 0.45rem;
 }
 
+.brand-logo {
+  width: clamp(150px, 19vw, 210px);
+  height: auto;
+}
+
 .nav-links {
   display: flex;
   align-items: center;
