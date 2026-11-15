@@ -50,7 +50,7 @@ export async function uploadCaptureToGallery(options) {
       imageBase64: options.bytes.toString("base64"),
       mimeType: options.mimeType || "image/png",
       name: options.name || `chert-${Date.now()}.png`,
-      note: options.note || "Captured by Chert pose agent",
+      note: options.note || "Chert upload",
     }),
     signal: AbortSignal.timeout(30_000),
   });

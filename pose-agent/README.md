@@ -125,6 +125,16 @@ absolute path in `.env.local`:
 POSE_REFERENCE_IMAGE=/absolute/path/to/reference.jpg
 ```
 
+When `GALLERY_API_URL`, `GALLERY_INGEST_SECRET`, and `GALLERY_USER_EMAIL` are
+set (the same three vars `gallery_upload.mjs` uses to push Chert captures to
+the website's gallery API — see `.env.example`), the agent instead fetches
+that account's latest website "Inspiration upload" from the gallery API,
+extracts its MediaPipe skeleton, saves the skeleton back to the gallery as a
+separate item (note "Inspiration skeleton", `source: "upload"`), and uses the
+original photo as the live reference pose. `reference-images/` / 
+`POSE_REFERENCE_IMAGE` remain the fallback when the gallery env isn't set or
+the account has no upload yet. See `inspiration_reference.mjs`.
+
 Restart both `npm start` and `chert dev`. MediaPipe extracts landmarks from that
 photo and each caller frame. Grok compares the resulting joint overlays and
 returns a focused correction or match result. The agent speaks one body

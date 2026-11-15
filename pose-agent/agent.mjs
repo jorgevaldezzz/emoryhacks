@@ -25,6 +25,7 @@ import { cropFacetimeFrame, frameToAgentRgba } from './frame_display.mjs';
 import { uploadCaptureToGallery } from './gallery_upload.mjs';
 import { greetOnBridgeReady } from './greet.mjs';
 import { createGrokPoseCoach } from './grok_pose_coach.mjs';
+import { syncInspirationReference } from './inspiration_reference.mjs';
 import { loadReferenceImage } from './reference_pose.mjs';
 import { comparePoseGeometry, createPoseMatcher, MediaPipePoseWorker } from '../pose-matcher/src/index.mjs';
 
@@ -157,7 +158,12 @@ export default defineAgent({
     /** @type {Promise<void>} */
     const referenceReady = (async () => {
       try {
-        const loaded = await loadReferenceImage();
+        // Prefer the caller's own "Inspiration upload" from the website gallery
+        // (also derives and stores its skeleton there) over the local dev-only
+        // reference-images/ folder. Falls back automatically when the gallery
+        // env isn't set or the account has no upload yet.
+        const loaded = await syncInspirationReference({ detectPose: image => poseWorker.detect(image) })
+          ?? await loadReferenceImage();
         if (!loaded) {
           referenceState = 'missing';
           referenceUnavailableMessage = 'Speak English only. Say that a reference pose image must be loaded before you can guide them.';
@@ -269,7 +275,6 @@ export default defineAgent({
             bytes: captureBytes,
             mimeType: 'image/png',
             name: saved.savedPath ? saved.savedPath.split(/[\\/]/).pop() : undefined,
-            note: 'Captured by Chert pose agent',
           });
           if (gallery.skipped) {
             console.log(`[gallery] ${gallery.message}`);
