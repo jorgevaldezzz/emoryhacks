@@ -37,9 +37,12 @@
               Upload inspiration, match nearby locations, and get live pose direction —
               then keep every keeper in your gallery.
             </p>
-            <div class="btn-row" style="margin-top: 22px">
+            <div class="btn-row guest-only" style="margin-top: 22px">
               <a class="btn btn-primary" href="#login?mode=signup">Sign up</a>
               <a class="btn btn-secondary" href="#login">Login</a>
+            </div>
+            <div class="btn-row auth-only hidden" style="margin-top: 22px">
+              <a class="btn btn-primary" href="#upload">Continue to Pose Direct</a>
             </div>
           </div>
         </section>
@@ -74,9 +77,11 @@
         <section class="cta-band">
           <div>
             <h2>Start your personalized AI-driven photo shoot right now.</h2>
-            <p>Create an account to unlock upload, location matching, and your gallery.</p>
+            <p class="guest-only">Create an account to unlock upload, location matching, and your gallery.</p>
+            <p class="auth-only hidden">You’re signed in — jump back into upload, locations, or your gallery.</p>
           </div>
-          <a class="btn btn-primary" href="#login?mode=signup">Get started</a>
+          <a class="btn btn-primary guest-only" href="#login?mode=signup">Get started</a>
+          <a class="btn btn-primary auth-only hidden" href="#upload">Open Pose Direct</a>
         </section>
       </main>
 
@@ -152,7 +157,7 @@
               </div>
             </label>
 
-            <button class="btn btn-primary" id="continueUpload" type="button" disabled>
+            <button class="btn btn-primary" id="continueUpload" type="button">
               Continue
             </button>
             <button class="btn btn-secondary" id="skipToGallery" type="button">
@@ -168,7 +173,7 @@
           <section class="panel">
             <span class="eyebrow">Location &amp; Recommendation</span>
             <h1>Spatial Background Proximity</h1>
-            <p class="sub">Recommended spots near you that sync with your uploaded inspiration.</p>
+            <p class="sub" id="locationSub">Recommended spots near you that sync with your uploaded inspiration.</p>
 
             <div class="map-stage" aria-label="Map of recommended photo spots">
               <span class="map-pin you" style="left: 36%; top: 48%">You</span>
@@ -231,12 +236,28 @@
       </main>
     </div>
 
+    <div class="modal-backdrop hidden" id="locationModal" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="locationModalTitle" style="display: none">
+      <div class="modal-card">
+        <span class="eyebrow">Location access</span>
+        <h2 id="locationModalTitle">Share your location?</h2>
+        <p>
+          IMPhotogenic needs your current location to match nearby photo spots to your
+          uploaded inspiration.
+        </p>
+        <p class="modal-status" id="locationModalStatus" aria-live="polite"></p>
+        <div class="btn-row modal-actions">
+          <button class="btn btn-primary" id="allowLocationBtn" type="button">Allow location</button>
+          <button class="btn btn-secondary" id="denyLocationBtn" type="button">Not now</button>
+        </div>
+      </div>
+    </div>
+
     <div class="flow-hint" id="flowHint">
       <strong>Prototype flow</strong>
       Home → Sign up / Login → Upload → (optional) Locations → Gallery
     </div>
     <div class="toast" id="toast" role="status"></div>
 
-    <script src="./app.js"></script>
+    <script src="./app.js?v=6"></script>
   </body>
 </html>

@@ -212,12 +212,22 @@ img {
   display: grid;
   gap: 28px;
   padding: 28px 0 8px;
+  text-align: center;
+  justify-items: center;
+}
+
+.hero > div {
+  width: min(100%, 52rem);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
 }
 
 .hero h1 {
-  margin: 0;
+  margin: 0 auto;
   font-size: clamp(2.4rem, 5vw, 4.2rem);
-  max-width: 14ch;
+  max-width: 22ch;
 }
 
 .hero h1 em {
@@ -226,10 +236,15 @@ img {
 }
 
 .hero p.lead {
-  margin: 0;
-  max-width: 42ch;
+  margin: 14px auto 0;
+  max-width: 40rem;
   color: var(--muted);
   font-size: 1.08rem;
+  text-align: center;
+}
+
+.hero .btn-row {
+  justify-content: center;
 }
 
 .feature-grid {
@@ -621,6 +636,48 @@ img {
   background: rgba(255, 255, 255, 0.6);
 }
 
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(26, 18, 20, 0.48);
+  backdrop-filter: blur(6px);
+}
+
+.modal-card {
+  width: min(440px, 100%);
+  padding: 28px;
+  border-radius: calc(var(--radius) + 4px);
+  background: var(--bg-elevated);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+}
+
+.modal-card h2 {
+  margin: 0 0 10px;
+  font-size: 1.7rem;
+}
+
+.modal-card p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.modal-status {
+  min-height: 1.4em;
+  margin-top: 12px !important;
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--ink) !important;
+}
+
+.modal-actions {
+  margin-top: 22px;
+}
+
 .toast {
   position: fixed;
   left: 50%;
@@ -634,7 +691,7 @@ img {
   border-radius: 999px;
   font-weight: 600;
   transition: 220ms ease;
-  z-index: 40;
+  z-index: 60;
 }
 
 .toast.show {
@@ -654,6 +711,7 @@ img {
   color: #fff;
   font-size: 0.84rem;
   box-shadow: var(--shadow);
+  pointer-events: none;
 }
 
 .flow-hint strong {
@@ -678,6 +736,6 @@ img {
   }
 
   .hero h1 {
-    max-width: none;
+    max-width: 18ch;
   }
 }
