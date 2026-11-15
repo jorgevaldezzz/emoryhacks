@@ -1,13 +1,56 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { describe, it } from 'node:test';
-import { nextCoachStep, shouldSpeakPoseCue } from '../coach_flow.mjs';
+import {
+  afterCoachObservation,
+  excludeJointsForCompare,
+  nextCoachStep,
+  shouldSpeakPoseCue,
+} from '../coach_flow.mjs';
 
 describe('nextCoachStep', () => {
   it('suppresses a repeated focus joint until attention moves to another joint', () => {
     assert.equal(shouldSpeakPoseCue({ focusJoint: 'left_wrist' }, 'left_wrist'), false);
     assert.equal(shouldSpeakPoseCue({ focusJoint: 'left_elbow' }, 'left_wrist'), true);
     assert.equal(shouldSpeakPoseCue({ focusJoint: 'left_wrist' }, 'left_wrist'), false);
+    assert.equal(
+      shouldSpeakPoseCue({ focusJoint: 'right_wrist' }, null, new Set(['right_wrist'])),
+      false,
+    );
+  });
+
+  it('keeps cue memory across a visibility miss so the same wrist tip is not re-spoken', () => {
+    const cue = 'Raise your right wrist up beside your head.';
+    let memory = { lastFocusJoint: null, lastCue: '', spokenJoints: new Set() };
+    memory = afterCoachObservation(memory, {
+      status: 'adjust',
+      focusJoint: 'right_wrist',
+      feedback: cue,
+    }, cue);
+    assert.equal(memory.lastFocusJoint, 'right_wrist');
+    assert.ok(memory.spokenJoints.has('right_wrist'));
+
+    memory = afterCoachObservation(memory, { status: 'insufficient_visibility' }, null);
+    assert.equal(memory.lastFocusJoint, 'right_wrist');
+    assert.equal(memory.lastCue, cue);
+    assert.ok(memory.spokenJoints.has('right_wrist'));
+    assert.equal(
+      shouldSpeakPoseCue({ focusJoint: 'right_wrist' }, memory.lastFocusJoint, memory.spokenJoints),
+      false,
+    );
+    assert.deepEqual([...excludeJointsForCompare(memory.spokenJoints)], ['right_wrist']);
+  });
+
+  it('clears spoken joints after a match so a later pose can be coached again', () => {
+    let memory = afterCoachObservation(
+      { lastFocusJoint: null, lastCue: '', spokenJoints: new Set() },
+      { status: 'adjust', focusJoint: 'right_wrist' },
+      'Raise your right wrist up beside your head.',
+    );
+    memory = afterCoachObservation(memory, { status: 'matched', ready: true }, null);
+    assert.equal(memory.lastFocusJoint, null);
+    assert.equal(memory.lastCue, '');
+    assert.equal(memory.spokenJoints.size, 0);
   });
   it('snaps on the first skeleton match and does not snap again until they leave it', () => {
     const matched = {
@@ -95,7 +138,11 @@ describe('agent instructions', () => {
     assert.match(greeting, /count down and take the photo/);
     assert.doesNotMatch(greeting, /cheese/);
     assert.doesNotMatch(instructions, /quiet|silence|Stay quiet|in frame/i);
+    assert.match(instructions, /Never invent (a )?pose correction|Never invent body corrections/i);
+    assert.match(instructions, /noSpeech|produce no audio|do not invent/i);
     assert.match(source, /LOOK_EVERY_MS = 4_000/);
     assert.match(source, /saveDebugSkeleton/);
+    assert.match(source, /excludeJoints/);
+    assert.doesNotMatch(source, /lastFocusJoint = null;\s*\n\s*lastCue = '';\s*\n\s*const instruction/);
   });
 });

@@ -44,8 +44,28 @@ function validateResult(value) {
   return { ok: false, status: 'comparison_uncertain', focusJoint: null, feedback: null };
 }
 
+function coachingPrompt(excludeJoints = []) {
+  const excluded = excludeJoints.filter(joint => joint && joint !== 'none');
+  const skip = excluded.length
+    ? ` The caller was already coached on these joints this attempt — do not choose them again for focus_joint: ${excluded.join(', ')}. Pick the next most important remaining gap instead.`
+    : '';
+  return (
+    'Compare these MediaPipe skeleton overlays. Image 1 is the target reference; image 2 is the live caller. '
+    + 'Each numbered node maps to the joint name in the right-side legend; use that mapping for focus_joint and spoken directions. '
+    + 'left_* and right_* mean the caller’s own anatomical sides, never the side of the screen; the live caller frame was unmirrored before landmark detection. '
+    + 'The neutral canvas contains labeled skeletons only, not the original photos. '
+    + 'Compare only the overlapping visible joints — a waist-up caller can still match the upper body of a full-body reference. '
+    + 'If they differ, identify the single most important correction and tell the caller exactly which body part to move, in which direction, '
+    + 'and where it should align relative to another visible joint. '
+    + 'Prefer stance, feet, hips, and torso lean when those differ from the reference; only focus on a wrist or hand when the lower body and torso already look close. '
+    + 'Never invent positions not supported by the drawings. Mark matched only when the visible pose geometry is close. If uncertain, do not guess. '
+    + 'Reply with the required structured result; an adjustment must have focus_joint and one short, specific cue, while matched/uncertain must use focus_joint "none" and cue null.'
+    + skip
+  );
+}
+
 export function createGrokPoseCoach({ apiKey = process.env.XAI_API_KEY, model = process.env.XAI_POSE_COACH_MODEL || 'grok-4.7', fetchImpl = fetch } = {}) {
-  return async function comparePose({ reference, current }) {
+  return async function comparePose({ reference, current, excludeJoints = [] } = {}) {
     if (!apiKey) throw new Error('XAI_API_KEY is missing; Grok pose comparison is unavailable.');
     const [referenceOverlay, currentOverlay] = await Promise.all([
       renderPoseOverlay(reference),
@@ -63,7 +83,7 @@ export function createGrokPoseCoach({ apiKey = process.env.XAI_API_KEY, model = 
         input: [{
           role: 'user',
           content: [
-            { type: 'input_text', text: 'Compare these MediaPipe skeleton overlays. Image 1 is the target reference; image 2 is the live caller. Each numbered node maps to the joint name in the right-side legend; use that mapping for focus_joint and spoken directions. left_* and right_* mean the caller’s own anatomical sides, never the side of the screen; the live caller frame was unmirrored before landmark detection. The neutral canvas contains labeled skeletons only, not the original photos. Compare only the overlapping visible joints — a waist-up caller can still match the upper body of a full-body reference. If they differ, identify the single most important correction and tell the caller exactly which body part to move, in which direction, and where it should align relative to another visible joint (for example, move the caller’s left wrist beside their head). Never invent positions not supported by the drawings. Mark matched only when the visible pose geometry is close. If uncertain, do not guess. Reply with the required structured result; an adjustment must have focus_joint and one short, specific cue, while matched/uncertain must use focus_joint "none" and cue null.' },
+            { type: 'input_text', text: coachingPrompt(excludeJoints) },
             { type: 'input_image', image_url: referenceOverlay, detail: 'high' },
             { type: 'input_image', image_url: currentOverlay, detail: 'high' },
           ],
