@@ -24,8 +24,9 @@ describe("imphotogenic api", async () => {
   let base;
 
   before(async () => {
+    process.env.GALLERY_MAX_ITEMS = "3";
     const mod = await import("../src/server.js");
-    app = mod.createApp();
+    app = await mod.createApp();
     await new Promise((resolve) => {
       server = app.listen(0, "127.0.0.1", resolve);
     });
@@ -36,7 +37,7 @@ describe("imphotogenic api", async () => {
   after(async () => {
     await new Promise((resolve) => server.close(resolve));
     const { closeDb } = await import("../src/db.js");
-    closeDb();
+    await closeDb();
     await rm(dataDir, { recursive: true, force: true });
   });
 
@@ -155,6 +156,59 @@ describe("imphotogenic api", async () => {
       headers: { Authorization: `Bearer ${login.body.token}` },
     });
     assert.equal(listed.body.items.length, 2);
+    assert.equal(listed.body.maxItems, 3);
     assert.ok(listed.body.items.some((i) => i.source === "chert"));
+  });
+
+  it("prunes the oldest gallery items when the per-user cap is exceeded", async () => {
+    const login = await json("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email: "jorge@example.com", password: "secret12" }),
+    });
+    const token = login.body.token;
+    const png = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+      "base64"
+    );
+
+    for (let i = 0; i < 3; i += 1) {
+      const { res } = await json("/api/gallery", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          imageBase64: png.toString("base64"),
+          mimeType: "image/png",
+          name: `extra-${i}.png`,
+          note: `cap-${i}`,
+        }),
+      });
+      assert.equal(res.status, 201);
+    }
+
+    const listed = await json("/api/gallery", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    assert.equal(listed.res.status, 200);
+    assert.equal(listed.body.items.length, 3);
+    assert.equal(listed.body.count, 3);
+    assert.equal(listed.body.maxItems, 3);
+
+    const health = await json("/health");
+    assert.equal(health.body.database, "sqlite");
+    assert.equal(health.body.storage, "local");
+    assert.equal(health.body.galleryMaxItems, 3);
+
+    const victim = listed.body.items[listed.body.items.length - 1];
+    const del = await json(`/api/gallery/${victim.id}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    assert.equal(del.res.status, 200);
+
+    const after = await json("/api/gallery", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    assert.equal(after.body.items.length, 2);
+    assert.equal(after.body.items.some((i) => i.id === victim.id), false);
   });
 });

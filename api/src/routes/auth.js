@@ -10,6 +10,7 @@ router.post("/signup", async (req, res, next) => {
       email: req.body?.email,
       password: req.body?.password,
       name: req.body?.name,
+      username: req.body?.username,
     });
     const token = signToken(user);
     res.status(201).json({ token, user });

@@ -6,7 +6,7 @@ import { getPublicUser, verifyToken } from "./auth.js";
  * @param {import('express').Response} res
  * @param {import('express').NextFunction} next
  */
-export function requireAuth(req, res, next) {
+export async function requireAuth(req, res, next) {
   const header = req.headers.authorization || "";
   const match = /^Bearer\s+(.+)$/i.exec(header);
   if (!match) {
@@ -14,7 +14,7 @@ export function requireAuth(req, res, next) {
   }
   try {
     const payload = verifyToken(match[1]);
-    const user = getPublicUser(String(payload.sub));
+    const user = await getPublicUser(String(payload.sub));
     if (!user) {
       return res.status(401).json({ error: "User no longer exists" });
     }

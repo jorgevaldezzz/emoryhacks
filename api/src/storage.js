@@ -1,7 +1,11 @@
 import { randomUUID } from "node:crypto";
-import fs from "node:fs";
-import path from "node:path";
-import { UPLOAD_DIR, insertGalleryItem, deleteGalleryItem } from "./db.js";
+import {
+  countGalleryForUser,
+  insertGalleryItem,
+  deleteGalleryItem,
+  listOldestGalleryForUser,
+} from "./db.js";
+import { deleteImageObject, putImageObject } from "./object-store.js";
 
 const ALLOWED_MIME = new Set([
   "image/jpeg",
@@ -9,6 +13,13 @@ const ALLOWED_MIME = new Set([
   "image/webp",
   "image/gif",
 ]);
+
+/** Default soft cap per account; oldest images are deleted when exceeded. */
+export function galleryMaxItems() {
+  const raw = Number(process.env.GALLERY_MAX_ITEMS || 25);
+  if (!Number.isFinite(raw) || raw < 1) return 25;
+  return Math.floor(raw);
+}
 
 /**
  * @param {string} mime
@@ -40,6 +51,25 @@ export function assertAllowedMime(mime) {
 }
 
 /**
+ * If the user is at/over the gallery cap, delete oldest items until there is room.
+ * @param {string} userId
+ */
+export async function enforceGalleryCap(userId) {
+  const max = galleryMaxItems();
+  let count = await countGalleryForUser(userId);
+  if (count < max) return { pruned: 0, max };
+
+  const overflow = count - max + 1; // make room for one new item
+  const oldest = await listOldestGalleryForUser(userId, overflow);
+  let pruned = 0;
+  for (const item of oldest) {
+    await removeGalleryImage(item.id, userId);
+    pruned += 1;
+  }
+  return { pruned, max };
+}
+
+/**
  * Persist an image buffer and create a gallery row for the user.
  * @param {{
  *   userId: string,
@@ -50,7 +80,7 @@ export function assertAllowedMime(mime) {
  *   source?: string,
  * }} input
  */
-export function saveGalleryImage(input) {
+export async function saveGalleryImage(input) {
   assertAllowedMime(input.mime);
   if (!input.buffer?.length) {
     const err = new Error("Image data is empty");
@@ -64,22 +94,31 @@ export function saveGalleryImage(input) {
     throw err;
   }
 
-  fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+  const cap = await enforceGalleryCap(input.userId);
+
   const id = randomUUID();
   const filename = `${id}${extensionForMime(input.mime)}`;
-  const diskPath = path.join(UPLOAD_DIR, filename);
-  fs.writeFileSync(diskPath, input.buffer);
+  await putImageObject({
+    filename,
+    buffer: input.buffer,
+    mime: input.mime,
+  });
 
   const createdAt = new Date().toISOString();
-  insertGalleryItem({
-    id,
-    userId: input.userId,
-    filename,
-    originalName: input.originalName ?? null,
-    note: input.note ?? null,
-    source: input.source || "upload",
-    createdAt,
-  });
+  try {
+    await insertGalleryItem({
+      id,
+      userId: input.userId,
+      filename,
+      originalName: input.originalName ?? null,
+      note: input.note ?? null,
+      source: input.source || "upload",
+      createdAt,
+    });
+  } catch (err) {
+    await deleteImageObject(filename);
+    throw err;
+  }
 
   return {
     id,
@@ -88,6 +127,8 @@ export function saveGalleryImage(input) {
     note: input.note ?? null,
     source: input.source || "upload",
     createdAt,
+    pruned: cap.pruned,
+    galleryMaxItems: cap.max,
   };
 }
 
@@ -95,29 +136,12 @@ export function saveGalleryImage(input) {
  * @param {string} id
  * @param {string} userId
  */
-export function removeGalleryImage(id, userId) {
-  const item = deleteGalleryItem(id, userId);
+export async function removeGalleryImage(id, userId) {
+  const item = await deleteGalleryItem(id, userId);
   if (!item) return null;
-  const diskPath = path.join(UPLOAD_DIR, item.filename);
-  try {
-    fs.unlinkSync(diskPath);
-  } catch {
-    // Missing file is fine — DB row is already gone.
-  }
+  await deleteImageObject(item.filename);
   return item;
 }
 
-/**
- * Absolute path for a stored filename (path-traversal safe).
- * @param {string} filename
- */
-export function resolveUploadPath(filename) {
-  const base = path.resolve(UPLOAD_DIR);
-  const full = path.resolve(UPLOAD_DIR, path.basename(filename));
-  if (!full.startsWith(base + path.sep) && full !== base) {
-    const err = new Error("Invalid filename");
-    err.status = 400;
-    throw err;
-  }
-  return full;
-}
+// Re-export for server.js upload proxy path checks (local mode).
+export { resolveUploadPath } from "./object-store.js";

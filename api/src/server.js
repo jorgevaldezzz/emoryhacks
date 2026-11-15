@@ -1,11 +1,11 @@
 import express from "express";
 import cors from "cors";
-import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { openDb, closeDb, UPLOAD_DIR } from "./db.js";
+import { openDb, closeDb, UPLOAD_DIR, databaseMode } from "./db.js";
 import { errorHandler } from "./middleware.js";
-import { resolveUploadPath } from "./storage.js";
+import { openImageObject, objectStoreMode } from "./object-store.js";
+import { galleryMaxItems } from "./storage.js";
 import authRoutes from "./routes/auth.js";
 import galleryRoutes from "./routes/gallery.js";
 
@@ -20,8 +20,8 @@ function corsOrigins() {
     .filter(Boolean);
 }
 
-export function createApp() {
-  openDb();
+export async function createApp() {
+  await openDb();
 
   const app = express();
   app.set("trust proxy", 1);
@@ -35,20 +35,28 @@ export function createApp() {
   app.use(express.json({ limit: "10mb" }));
 
   app.get("/health", (_req, res) => {
-    res.json({ ok: true, service: "imphotogenic-api" });
+    res.json({
+      ok: true,
+      service: "imphotogenic-api",
+      database: databaseMode(),
+      storage: objectStoreMode(),
+      galleryMaxItems: galleryMaxItems(),
+    });
   });
 
   app.use("/api/auth", authRoutes);
   app.use("/api/gallery", galleryRoutes);
 
-  // Public image URLs (filenames are UUIDs).
-  app.get("/uploads/:filename", (req, res, next) => {
+  // Image proxy (local disk or private S3/R2 bucket).
+  app.get("/uploads/:filename", async (req, res, next) => {
     try {
-      const full = resolveUploadPath(req.params.filename);
-      if (!fs.existsSync(full)) {
+      const opened = await openImageObject(req.params.filename);
+      if (!opened) {
         return res.status(404).json({ error: "Not found" });
       }
-      res.sendFile(full);
+      res.setHeader("Content-Type", opened.contentType);
+      res.setHeader("Cache-Control", "public, max-age=86400");
+      opened.stream.pipe(res);
     } catch (err) {
       next(err);
     }
@@ -70,15 +78,18 @@ if (isMain()) {
     process.exit(1);
   }
 
-  const app = createApp();
+  const app = await createApp();
   const server = app.listen(PORT, () => {
     console.log(`[api] listening on http://0.0.0.0:${PORT}`);
-    console.log(`[api] uploads → ${path.resolve(UPLOAD_DIR)}`);
+    console.log(`[api] database=${databaseMode()} storage=${objectStoreMode()}`);
+    if (objectStoreMode() === "local") {
+      console.log(`[api] uploads → ${path.resolve(UPLOAD_DIR)}`);
+    }
   });
 
   function shutdown() {
-    server.close(() => {
-      closeDb();
+    server.close(async () => {
+      await closeDb();
       process.exit(0);
     });
   }
