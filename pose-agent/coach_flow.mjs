@@ -30,8 +30,11 @@ export function spokenCorrection(text) {
   return say;
 }
 
-/** Tool result when the caller should hear nothing. Not a line to read aloud. */
-export const noSpeech = 'Instruction to you, not a line for the caller: produce no audio on this turn.';
+/**
+ * Tool result when the caller should hear nothing.
+ * Keep this a token the model must not vocalize — "produce no audio" was being read aloud.
+ */
+export const noSpeech = 'TOOL_SILENT';
 
 /**
  * Empty coaching memory for a new call or after a successful match/snap.

@@ -1,6 +1,10 @@
 import { renderPoseOverlay } from './pose_overlays.mjs';
 
 const ENDPOINT = 'https://api.x.ai/v1/responses';
+/** Stick-figure overlays do not need high-res vision tokens. */
+export const IMAGE_DETAIL = 'low';
+/** Fail fast so a hung compare cannot burn a whole FaceTime call. */
+export const COMPARE_TIMEOUT_MS = 20_000;
 const JOINTS = [
   'nose', 'left_shoulder', 'right_shoulder', 'left_elbow', 'right_elbow',
   'left_wrist', 'right_wrist', 'left_hip', 'right_hip', 'left_knee',
@@ -64,13 +68,27 @@ function coachingPrompt(excludeJoints = []) {
   );
 }
 
-export function createGrokPoseCoach({ apiKey = process.env.XAI_API_KEY, model = process.env.XAI_POSE_COACH_MODEL || 'grok-4.7', fetchImpl = fetch } = {}) {
+export function createGrokPoseCoach({
+  apiKey = process.env.XAI_API_KEY,
+  model = process.env.XAI_POSE_COACH_MODEL || 'grok-4.7',
+  fetchImpl = fetch,
+  renderOverlay = renderPoseOverlay,
+} = {}) {
+  /** @type {object | null} */
+  let cachedReference = null;
+  /** @type {string | null} */
+  let cachedReferenceOverlay = null;
+
   return async function comparePose({ reference, current, excludeJoints = [] } = {}) {
     if (!apiKey) throw new Error('XAI_API_KEY is missing; Grok pose comparison is unavailable.');
-    const [referenceOverlay, currentOverlay] = await Promise.all([
-      renderPoseOverlay(reference),
-      renderPoseOverlay(current),
-    ]);
+    const referenceOverlay = cachedReference === reference && cachedReferenceOverlay
+      ? cachedReferenceOverlay
+      : await renderOverlay(reference);
+    if (cachedReference !== reference) {
+      cachedReference = reference;
+      cachedReferenceOverlay = referenceOverlay;
+    }
+    const currentOverlay = await renderOverlay(current);
     const response = await fetchImpl(ENDPOINT, {
       method: 'POST',
       headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
@@ -78,19 +96,19 @@ export function createGrokPoseCoach({ apiKey = process.env.XAI_API_KEY, model = 
         model,
         store: false,
         // Landmark overlays are a spatial glance, not a reasoning task. Low effort
-        // answers in ~10s; the default often blows past the call's silent-look budget.
+        // answers in a few seconds; higher effort often blows the FaceTime budget.
         reasoning: { effort: 'low' },
         input: [{
           role: 'user',
           content: [
             { type: 'input_text', text: coachingPrompt(excludeJoints) },
-            { type: 'input_image', image_url: referenceOverlay, detail: 'high' },
-            { type: 'input_image', image_url: currentOverlay, detail: 'high' },
+            { type: 'input_image', image_url: referenceOverlay, detail: IMAGE_DETAIL },
+            { type: 'input_image', image_url: currentOverlay, detail: IMAGE_DETAIL },
           ],
         }],
         text: { format: FORMAT },
       }),
-      signal: AbortSignal.timeout(45_000),
+      signal: AbortSignal.timeout(COMPARE_TIMEOUT_MS),
     });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {

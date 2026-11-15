@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { createGrokPoseCoach, GROK_POSE_ENDPOINT, validateGrokPoseResult } from '../grok_pose_coach.mjs';
+import {
+  COMPARE_TIMEOUT_MS,
+  createGrokPoseCoach,
+  GROK_POSE_ENDPOINT,
+  IMAGE_DETAIL,
+  validateGrokPoseResult,
+} from '../grok_pose_coach.mjs';
 
 const point = (x, y) => ({ x, y, confidence: 0.95 });
 const pose = (shift = 0) => ({ personVisible: true, landmarks: {
@@ -35,6 +41,9 @@ describe('Grok pose coaching', () => {
     const images = content.filter(item => item.type === 'input_image');
     assert.equal(images.length, 2);
     assert.ok(images.every(item => item.image_url.startsWith('data:image/png;base64,')));
+    assert.ok(images.every(item => item.detail === IMAGE_DETAIL));
+    assert.equal(IMAGE_DETAIL, 'low');
+    assert.ok(COMPARE_TIMEOUT_MS <= 20_000);
     assert.match(content.find(item => item.type === 'input_text').text, /skeleton overlays/i);
     assert.match(content.find(item => item.type === 'input_text').text, /own anatomical sides/i);
     assert.match(content.find(item => item.type === 'input_text').text, /never the side of the screen/i);
@@ -94,5 +103,26 @@ describe('Grok pose coaching', () => {
     await assert.rejects(malformed({ reference: pose(), current: pose() }), /invalid pose comparison/);
     const failed = createGrokPoseCoach({ apiKey: 'test', fetchImpl: async () => response({ error: { message: 'quota exhausted' } }, { ok: false, status: 429 }) });
     await assert.rejects(failed({ reference: pose(), current: pose() }), /429.*quota exhausted/);
+  });
+
+  it('reuses the reference overlay across compares so only the live frame is re-rendered', async () => {
+    let renders = 0;
+    const coach = createGrokPoseCoach({
+      apiKey: 'test-key',
+      renderOverlay: async (poseInput) => {
+        renders += 1;
+        return `data:image/png;base64,overlay-${renders}-${poseInput.landmarks.left_wrist.x}`;
+      },
+      fetchImpl: async () => response(output({
+        status: 'adjust',
+        focus_joint: 'left_ankle',
+        cue: 'Step your left foot farther out to widen your stance.',
+      })),
+    });
+    const reference = pose();
+    await coach({ reference, current: pose(0.05) });
+    await coach({ reference, current: pose(0.12) });
+    // 1 reference + 2 live frames (not 2+2).
+    assert.equal(renders, 3);
   });
 });
