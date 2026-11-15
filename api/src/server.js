@@ -7,7 +7,6 @@ import { errorHandler } from "./middleware.js";
 import { getGalleryImage } from "./storage.js";
 import authRoutes from "./routes/auth.js";
 import galleryRoutes from "./routes/gallery.js";
-import { createLocationRouter } from "./routes/locations.js";
 
 const PORT = Number(process.env.PORT || 8787);
 
@@ -20,7 +19,7 @@ function corsOrigins() {
     .filter(Boolean);
 }
 
-export function createApp({ recommendLocations } = {}) {
+export function createApp() {
   const app = express();
   app.set("trust proxy", 1);
 
@@ -38,7 +37,6 @@ export function createApp({ recommendLocations } = {}) {
 
   app.use("/api/auth", authRoutes);
   app.use("/api/gallery", galleryRoutes);
-  app.use("/api/locations", createLocationRouter({ recommend: recommendLocations }));
 
   // Gallery image bytes are stored in MongoDB with their metadata.
   app.get("/uploads/:id", async (req, res, next) => {
