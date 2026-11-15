@@ -6,6 +6,6 @@ Emory Hacks Github Repo
 `pose-matcher/` extracts body landmarks from a reference photo and caller
 snapshot, compares visible limb angles, and returns concise feedback. The Chert
 agent in `pose-agent/` loads a reference from `reference-images/` (or
-`POSE_REFERENCE_IMAGE`) for vision coaching via `guide_pose`, and exposes
-`match_reference_pose` for the landmark-angle score. See
+`POSE_REFERENCE_IMAGE`), coaches each live frame toward that skeleton, then
+counts down and snaps when the pose matches. See
 [`pose-matcher/README.md`](pose-matcher/README.md) for limitations.

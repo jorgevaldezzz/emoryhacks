@@ -72,8 +72,10 @@
 ## Future pose reference uploads
 
 Development loads a local reference from `POSE_REFERENCE_IMAGE` or the first
-image in `reference-images/` and uses it for `guide_pose` / silent looks plus
-`match_reference_pose`. Replace this with a caller-upload flow later: accept a
+image in `reference-images/`. The call compares each live frame to that pose's
+skeleton, speaks the difference, then counts down and snaps on a match.
+`guide_pose` and `match_reference_pose` use the same comparison. Replace this
+with a caller-upload flow later: accept a
 reference image through the Chert experience, validate and store it only for
 that call/session, then run `setReference()` on the pose matcher and pass the
 same image into vision coaching. Do not hard-code a developer-specific path or

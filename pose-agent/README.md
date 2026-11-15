@@ -53,14 +53,15 @@ publishes an audio track, and shows video **only from that same participant**.
 
 ## Caller vision
 
-You see the animated AI face on FaceTime. About every eight seconds the agent
-silently compares your pose to the loaded reference image in `reference-images/`
-(or `POSE_REFERENCE_IMAGE`) and may coach you — or tell you when you look ready.
-It does not use the old arms-out sample scaffold. Those checks never flash or
-preview a still. Say **cheese** for an immediate 3-2-1: shutter flash, still on
-FaceTime, and a timestamped PNG in `captures/` — vision tips run after the snap
-so they never delay the photo. Snaps keep the cropped camera aspect (no square
-stretch); the on-call preview letterboxes instead of smooshing the still.
+You see the animated AI face on FaceTime. The call compares each live frame to
+the skeleton of the reference image in `reference-images/` (or
+`POSE_REFERENCE_IMAGE`) and coaches the one difference. It does not use the old
+arms-out sample scaffold, and it does not wait for you to decide that you match.
+When the pose matches, it counts down and snaps: shutter flash, still on
+FaceTime, and a timestamped PNG in `captures/`. Say **cheese** only if you want
+the photo before that match. Coaching looks do not flash or save a still. Snaps
+keep the cropped camera aspect (no square stretch); the on-call preview
+letterboxes instead of smooshing the still.
 
 ## Change the picture
 
@@ -104,9 +105,10 @@ absolute path in `.env.local`:
 POSE_REFERENCE_IMAGE=/absolute/path/to/reference.jpg
 ```
 
-Restart both `npm start` and `chert dev`. Silent looks and `guide_pose` send that
-reference image plus the newest caller frame to xAI vision and speak one body tip
-toward matching it. `match_reference_pose` is the separate landmark-angle score
-from `../pose-matcher/`. Vision and landmark extraction use `store: false`. The
-comparison is approximate when joints are occluded or left/right is ambiguous.
-See [`../pose-matcher/README.md`](../pose-matcher/README.md).
+Restart both `npm start` and `chert dev`. Each live frame is compared to that
+photo's skeleton (`../pose-matcher/`). The agent speaks one body correction,
+then counts down and snaps when the angles match. `guide_pose` and
+`match_reference_pose` use the same comparison. Vision is only the fallback
+when landmark extraction is unavailable. Vision and landmark extraction use
+`store: false`. The comparison is approximate when joints are occluded or
+left/right is ambiguous. See [`../pose-matcher/README.md`](../pose-matcher/README.md).

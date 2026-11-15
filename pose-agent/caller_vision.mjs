@@ -33,8 +33,9 @@ Coach the caller to match the reference pose — ignore any default standing or 
 Reply with JSON only, no markdown: {"seen": false, "ready": false, "cue": null} or {"seen": true, "ready": false|true, "cue": "<one short English coaching tip>"}.
 Set seen to true when a person is clearly visible in the caller frame.
 Set ready to true only when their pose closely matches the reference. Otherwise ready is false.
-When seen is true, cue must be ONLY one specific body correction toward the reference — for example "Raise your left elbow higher." or "Shift your weight onto your right leg." — or a readiness line if they match: "You look ready — say cheese when you want the shot."
-Do not give generic praise like "you look good" or "stand up" unless that is the exact mismatch.
+When seen is true and they do not match, cue must be ONLY one specific body correction toward the reference — for example "Raise your left elbow higher." or "Shift your weight onto your right leg."
+When seen is true and they match, cue must be exactly "Hold still."
+Do not tell them to say cheese or to ask for another check. Do not give generic praise like "you look good" or "stand up" unless that is the exact mismatch.
 Never mention photos, images, snapshots, cameras, files, folders, messaging, skeletons on screen, or that you are looking/checking/reviewing anything. Never write Spanish or any language other than English.
 When seen is false (blank, dark, camera off, no person), ready must be false and cue must be null.`;
 }

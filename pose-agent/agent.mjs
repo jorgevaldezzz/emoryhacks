@@ -3,6 +3,7 @@ import { AutoSubscribe, cli, defineAgent, llm, ServerOptions, voice } from '@liv
 import * as xai from '@livekit/agents-plugin-xai';
 import { LocalVideoTrack, TrackSource, VideoBufferType, VideoFrame, VideoSource } from '@livekit/rtc-node';
 import { encodeFramePng, saveFrameCapture, takePhotoFromFrame, watchCallerCamera } from './caller_vision.mjs';
+import { coachSpeech, nextCoachStep, photoAckSpeech } from './coach_flow.mjs';
 import { drawFace, FPS, HEIGHT, WIDTH } from './face.mjs';
 import { cropFacetimeFrame, frameToAgentRgba } from './frame_display.mjs';
 import { greetOnBridgeReady } from './greet.mjs';
@@ -17,18 +18,21 @@ const REPLAY_FRAMES = Math.round(FPS * 4);
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-// Silent looks and guide_pose coach toward the loaded reference image — never the arms-out scaffold.
+// Call pipeline: coach to the reference skeleton → match → countdown → snap.
+// Live frames are compared to that skeleton. The caller does not pick the correction or decide when they match.
 const instructions = `You are a pose coach on a FaceTime video call. The caller sees your AI face.
 Always speak English only. Never switch languages.
-When you get a pose cue, say "Okay" then only that body tip in one short sentence. Never say you are looking at, checking, reviewing, or going back to an image, photo, snapshot, or camera frame.
-If a cue says they look ready, tell them they are ready and can say cheese.
-When they say cheese (or clearly confirm a photo now), call take_photo immediately with no spoken preamble before the tool.
-After a real photo, acknowledge briefly that you took it and ask if they want another. If yes, tell them to say cheese when ready.
-If they ask for guidance, help posing, how to line up, or to match the target/reference pose, call guide_pose and say "Okay" then only that cue.
-If they ask to score or compare against the reference, call match_reference_pose when available and say only its feedback.
-Never invent a correction that was not in a cue. Never mention files, messaging, or skeletons.
+You run this call. The caller is matching their body to the reference pose. Do not wait for them to ask for help, choose a correction, or decide that they are lined up.
+Each live frame is compared to the reference skeleton. The pipeline is coach, then match, then countdown, then snap.
+When you get a pose cue, say "Okay" then only that one body correction in one short sentence, then stop. Never add a correction that was not in the cue. Never say you are looking at, checking, reviewing, or going back to an image, photo, snapshot, or camera frame.
+When the live pose matches, the countdown and photo start on their own. Stay quiet during that countdown. Do not tell them to say cheese first. Do not ask if they want the photo.
+If they say cheese anyway, call take_photo immediately with no spoken preamble before the tool.
+After a real photo, acknowledge in one short sentence that you took it. If they want another, coach toward the reference pose again.
+If they ask for guidance, call guide_pose and say "Okay" then only that cue.
+If they ask for a score, call match_reference_pose when available and say only its feedback.
+Never mention files, messaging, or skeletons.
 Be clear that you are an AI.`;
-const greeting = 'Greet in one short English sentence: say they can ask for guidance, you will help them match the target pose, and to say cheese for a three-two-one countdown before a photo.';
+const greeting = 'Greet in one short English sentence: say you will coach their body into the reference pose, and when it matches you will count down and take the photo.';
 
 export default defineAgent({
   entry: async ctx => {
@@ -43,7 +47,7 @@ export default defineAgent({
 
     const source = new VideoSource(WIDTH, HEIGHT);
     const track = LocalVideoTrack.createVideoTrack('agent-video', source);
-    let tick = 0, speaking = false, busy = false, looking = false, lastCue = '', announcedWait = false;
+    let tick = 0, speaking = false, busy = false, looking = false, lastCue = '', announcedWait = false, autoSnapArmed = true;
     let snapUntil = 0, replayUntil = 0, countdownDigit = 0, lookTimer;
     /** @type {{ at: number, seen: boolean, ready: boolean, cue: string | null } | null} */
     let lastReady = null;
@@ -78,7 +82,7 @@ export default defineAgent({
     session.on(voice.AgentSessionEventTypes.AgentStateChanged, event => { speaking = event.newState === 'speaking'; });
 
     // Load the development reference from POSE_REFERENCE_IMAGE or reference-images/.
-    // All coaching (silent looks + guide_pose) targets that pose, not the sample scaffold.
+    // Coaching compares each live frame to that pose's skeleton, not the sample scaffold.
     /** @type {string | null} */
     let referenceImage = null;
     let poseMatcher;
@@ -86,8 +90,9 @@ export default defineAgent({
       const loaded = await loadReferenceImage();
       if (loaded) {
         referenceImage = loaded.dataUrl;
-        poseMatcher = createPoseMatcher({ extractPose: image => extractPoseFromImage(image) });
-        await poseMatcher.setReference(loaded.dataUrl);
+        const matcher = createPoseMatcher({ extractPose: image => extractPoseFromImage(image) });
+        await matcher.setReference(loaded.dataUrl);
+        poseMatcher = matcher;
         console.log(`[pose-matcher] reference pose ready from ${loaded.path}`);
       } else {
         console.warn('[pose-matcher] no reference image in POSE_REFERENCE_IMAGE or reference-images/');
@@ -106,34 +111,67 @@ export default defineAgent({
     const analyzePose = (cropped) => takePhotoFromFrame(cropped, { save: false, referenceImage });
 
     /**
-     * Analyze-only pose check. Never used to gate the cheese shutter.
+     * Compare the live frame to the reference skeleton. Vision is only the fallback
+     * when landmark extraction is unavailable.
      * @param {import('@livekit/rtc-node').VideoFrame} cropped
      */
-    const readyCheck = async (cropped) => {
-      if (lastReady && Date.now() - lastReady.at < READY_TTL_MS) return lastReady;
+    const judgeFrame = async (cropped) => {
+      if (poseMatcher) {
+        const encoded = await encodeFramePng(cropped);
+        if (!encoded) return { status: 'unreadable', feedback: null, seen: false, ready: false, cue: null };
+        const result = await poseMatcher.check(`data:image/png;base64,${encoded.base64Data}`);
+        const seen = result.status !== 'person_not_visible' && result.status !== 'reference_missing';
+        const ready = result.status === 'matched';
+        if (result.status !== 'check_in_progress') {
+          lastReady = { at: Date.now(), seen, ready, cue: result.feedback ?? null };
+        }
+        console.log(`[pose-matcher] coach status=${result.status}${result.score == null ? '' : ` score=${result.score}`}`);
+        return { status: result.status, feedback: result.feedback ?? null, seen, ready, cue: result.feedback ?? null };
+      }
+      if (!referenceImage) return { status: 'reference_missing', feedback: null, seen: false, ready: false, cue: null };
       const result = await analyzePose(cropped);
       lastReady = { at: Date.now(), seen: result.seen, ready: result.ready, cue: result.cue };
-      return lastReady;
+      const status = result.ready ? 'matched' : (result.seen ? 'adjust' : 'person_not_visible');
+      return { status, feedback: result.cue, seen: result.seen, ready: result.ready, cue: result.cue };
     };
 
     /**
-     * Cheese snap: flash + FaceTime still + disk save first. Vision runs after for a tip.
+     * Flash, FaceTime still, and disk save. A skeleton tip is optional and never
+     * runs on the auto-match path, so the countdown is not waiting on a second opinion.
      * @param {import('@livekit/rtc-node').VideoFrame} cropped
+     * @param {{ analyze?: boolean }} [options]
      */
-    const commitPhoto = async (cropped) => {
+    const commitPhoto = async (cropped, { analyze = true } = {}) => {
       flashShutter();
       showCapture(cropped);
       const saved = await saveFrameCapture(cropped);
       console.log(`[caller-vision] snap saved=${saved.savedPath ?? 'no'} ok=${saved.ok}`);
 
       /** @type {{ seen: boolean, ready: boolean, cue: string | null }} */
-      let analysis = { seen: true, ready: false, cue: null };
-      try {
-        const result = await analyzePose(cropped);
-        analysis = { seen: result.seen, ready: result.ready, cue: result.cue };
-        lastReady = { at: Date.now(), ...analysis };
-      } catch (error) {
-        console.warn('[caller-vision] post-snap vision failed', error instanceof Error ? error.message : error);
+      let analysis = { seen: true, ready: true, cue: null };
+      if (analyze) {
+        try {
+          if (poseMatcher) {
+            const encoded = await encodeFramePng(cropped);
+            if (encoded) {
+              const compared = await poseMatcher.check(`data:image/png;base64,${encoded.base64Data}`);
+              if (compared.status !== 'check_in_progress' && compared.status !== 'reference_missing') {
+                analysis = {
+                  seen: compared.status !== 'person_not_visible',
+                  ready: compared.status === 'matched',
+                  cue: compared.status === 'matched' ? null : (compared.feedback ?? null),
+                };
+                lastReady = { at: Date.now(), ...analysis };
+              }
+            }
+          } else {
+            const result = await analyzePose(cropped);
+            analysis = { seen: result.seen, ready: result.ready, cue: result.ready ? null : result.cue };
+            lastReady = { at: Date.now(), ...analysis };
+          }
+        } catch (error) {
+          console.warn('[caller-vision] post-snap comparison failed', error instanceof Error ? error.message : error);
+        }
       }
       return {
         ok: saved.ok,
@@ -145,32 +183,106 @@ export default defineAgent({
     };
 
     /**
-     * Silent auto look: pose tip only. No flash, preview, or save.
+     * 3-2-1, then shutter. Do not await say() playout (tool deadlock risk).
+     * @param {{ holdStill?: boolean, analyze?: boolean }} [options]
+     */
+    const countdownAndSave = async ({ holdStill = false, analyze = true } = {}) => {
+      const cropped = latestCropped();
+      if (!cropped) return { ok: false, message: 'No camera frame yet. Ask them to keep FaceTime Video on.' };
+      // Refuse only when a fresh check already said the frame is empty — never wait on vision here.
+      if (lastReady && Date.now() - lastReady.at < READY_TTL_MS && !lastReady.seen) {
+        return {
+          ok: false,
+          message: 'Speak English only. Do not take a photo. Nobody is in frame. Ask them to step into the camera, then say cheese again.',
+        };
+      }
+
+      busy = true;
+      try {
+        try {
+          session.say(holdStill ? 'Hold still. Three. Two. One.' : 'Three. Two. One.', { allowInterruptions: false });
+        } catch (error) {
+          console.warn('[caller-vision] countdown say failed', error instanceof Error ? error.message : error);
+        }
+        for (const digit of [3, 2, 1]) {
+          countdownDigit = digit;
+          await sleep(DIGIT_MS);
+        }
+        countdownDigit = 0;
+
+        const finalCrop = latestCropped();
+        if (!finalCrop) return { ok: false, message: 'The camera dropped during countdown. Ask them to say cheese again.' };
+        const result = await commitPhoto(finalCrop, { analyze });
+        if (!result.savedPath) {
+          return { ok: false, message: 'Speak English only. The shutter ran but the file did not save. Ask them to say cheese again.' };
+        }
+        const tip = result.ready ? null : result.cue;
+        return {
+          ok: true,
+          message: tip
+            ? `Speak English only. You already took the photo. Say Okay, then only this remaining difference, then stop: ${tip}`
+            : photoAckSpeech(),
+        };
+      } catch (error) {
+        countdownDigit = 0;
+        console.warn('[caller-vision] take_photo failed', error instanceof Error ? error.message : error);
+        return { ok: false, message: 'The photo flow failed. Ask them to say cheese again.' };
+      } finally {
+        countdownDigit = 0;
+        busy = false;
+      }
+    };
+
+    /**
+     * Speak the skeleton difference, or count down and snap once the pose matches.
+     * @param {Awaited<ReturnType<typeof judgeFrame>>} judged
+     * @param {{ speak?: boolean, repeat?: boolean }} [options]
+     */
+    const followCoachStep = async (judged, { speak = false, repeat = false } = {}) => {
+      // A spoken request may take another photo even while the auto loop is waiting out the last match.
+      const step = nextCoachStep(judged, { autoSnapArmed: repeat || autoSnapArmed });
+      if (step.action === 'snap') {
+        if (busy || countdownDigit) return { ok: true, message: 'Speak English only. Stay quiet. The countdown is already running.' };
+        console.log('[caller-vision] reference matched — countdown and snap');
+        const snap = await countdownAndSave({ holdStill: true, analyze: false });
+        if (snap.ok) {
+          autoSnapArmed = false;
+          lastCue = '';
+          if (speak) session.generateReply({ instructions: photoAckSpeech() });
+        }
+        return snap;
+      }
+
+      autoSnapArmed = step.autoSnapArmed;
+      if (step.action !== 'coach' || !step.say) return { ok: true, message: 'Speak English only. Stay quiet.' };
+      if (!repeat && step.say === lastCue) return { ok: true, message: 'Speak English only. Stay quiet.' };
+      lastCue = step.say;
+      const message = coachSpeech(step.say);
+      if (speak && !speaking && !busy && !countdownDigit) {
+        console.log(`[caller-vision] coach cue: ${step.say}`);
+        session.generateReply({ instructions: message });
+      }
+      return { ok: true, message };
+    };
+
+    /**
+     * Silent auto look: compare the live frame to the reference skeleton.
+     * A match counts down and snaps. A gap is one spoken correction. No save.
      * @param {import('@livekit/rtc-node').VideoFrame} cropped
      */
     const silentLook = async (cropped) => {
-      if (!referenceImage) {
+      if (!referenceImage && !poseMatcher) {
         console.log('[caller-vision] silent look skipped: no reference image');
-        return { ok: false, seen: false, ready: false, cue: null, message: 'No reference pose loaded.' };
+        return { ok: false, message: 'No reference pose loaded.' };
       }
-      const result = await analyzePose(cropped);
-      lastReady = { at: Date.now(), seen: result.seen, ready: result.ready, cue: result.cue };
-      if (!result.seen) {
-        console.log('[caller-vision] silent look: nobody in frame');
-        return result;
-      }
-      if (!result.cue || result.cue === lastCue || speaking || busy) return result;
-      lastCue = result.cue;
-      console.log(`[caller-vision] silent look cue: ready=${result.ready} ${result.cue}`);
-      session.generateReply({
-        instructions: `Speak English only. Say "Okay," then only this pose tip in one short sentence, then stop. Never say you looked at, checked, reviewed, or went back to an image or photo: ${result.cue}`,
-      });
-      return result;
+      const judged = await judgeFrame(cropped);
+      if (judged.status === 'person_not_visible') console.log('[caller-vision] silent look: nobody in frame');
+      return followCoachStep(judged, { speak: true, repeat: false });
     };
 
     ctx.addShutdownCallback(async () => {
       clearInterval(timer);
-      clearInterval(lookTimer);
+      clearTimeout(lookTimer);
       camera.stop();
       await session.close();
       await track.close();
@@ -183,109 +295,52 @@ export default defineAgent({
         instructions,
         tools: {
           guide_pose: llm.tool({
-            description: 'Compare the caller to the loaded reference pose and return one short guidance cue. Use when they ask for guidance, help posing, how to line up, or to match the target pose.',
+            description: 'Compare the live frame to the reference skeleton and return the one correction that closes the gap. If they already match, the countdown and photo run inside this tool. Call when they ask for guidance. Do not wait for them to decide they are lined up.',
             execute: async () => {
               if (busy) return { ok: false, message: 'Already working. Wait a moment.' };
-              if (!referenceImage) {
+              if (!referenceImage && !poseMatcher) {
                 return { ok: false, message: 'Speak English only. Say you need a reference pose in reference-images before you can guide them.' };
               }
               const cropped = latestCropped();
-              if (!cropped) {
-                return { ok: false, message: 'No camera frame yet. Ask them to keep FaceTime Video on.' };
-              }
+              if (!cropped) return { ok: false, message: 'No camera frame yet. Ask them to keep FaceTime Video on.' };
+              let judged;
               busy = true;
               try {
-                const ready = await readyCheck(cropped);
-                if (!ready.seen) {
-                  return { ok: true, message: 'Speak English only. Say Okay, then ask them to step into the camera so you can see them.' };
-                }
-                return {
-                  ok: true,
-                  message: `Speak English only. Say Okay, then only this tip, then stop. Never mention looking at an image: ${ready.cue ?? 'Shift your stance a little to match the target pose.'}`,
-                };
+                judged = await judgeFrame(cropped);
               } catch (error) {
                 console.warn('[caller-vision] guide failed', error instanceof Error ? error.message : error);
                 return { ok: false, message: 'Could not check the pose. Ask them to try again.' };
               } finally {
                 busy = false;
               }
+              return followCoachStep(judged, { speak: false, repeat: true });
             },
           }),
           take_photo: llm.tool({
-            description: 'Start the cheese photo immediately: 3-2-1 on screen, then shutter flash, show the still on FaceTime, and save it. Call right away when they say cheese — no preamble.',
+            description: 'Count down and take the photo now. Call immediately when they say cheese. A reference-skeleton match already starts this countdown on its own, so do not call it just because they look close.',
             execute: async () => {
               if (busy) return { ok: false, message: 'Already taking a photo. Wait a moment.' };
-              const cropped = latestCropped();
-              if (!cropped) {
-                return { ok: false, message: 'No camera frame yet. Ask them to keep FaceTime Video on.' };
-              }
-              // Refuse only when a fresh check already said the frame is empty — never wait on vision here.
-              if (lastReady && Date.now() - lastReady.at < READY_TTL_MS && !lastReady.seen) {
-                return {
-                  ok: false,
-                  message: 'Speak English only. Do not take a photo. Nobody is in frame. Ask them to step into the camera, then say cheese again.',
-                };
-              }
-
-              busy = true;
-              try {
-                // Countdown starts now. Do not await say() playout (tool deadlock risk).
-                try {
-                  session.say('Three. Two. One.', { allowInterruptions: false });
-                } catch (error) {
-                  console.warn('[caller-vision] countdown say failed', error instanceof Error ? error.message : error);
-                }
-                for (const digit of [3, 2, 1]) {
-                  countdownDigit = digit;
-                  await sleep(DIGIT_MS);
-                }
-                countdownDigit = 0;
-
-                const finalCrop = latestCropped();
-                if (!finalCrop) {
-                  return { ok: false, message: 'The camera dropped during countdown. Ask them to say cheese again.' };
-                }
-
-                // Shutter + preview + disk save happen before any vision call.
-                const result = await commitPhoto(finalCrop);
-                if (!result.savedPath) {
-                  return {
-                    ok: false,
-                    message: 'Speak English only. The shutter ran but the file did not save. Ask them to say cheese again.',
-                  };
-                }
-                return {
-                  ok: true,
-                  message: `Speak English only. You already took the photo — it flashed and is on FaceTime. Acknowledge briefly. If there is a tip, say Okay then only: ${result.cue ?? 'Looking good.'}. Then ask if they want another. Never say you looked back at an image.`,
-                };
-              } catch (error) {
-                countdownDigit = 0;
-                console.warn('[caller-vision] take_photo failed', error instanceof Error ? error.message : error);
-                return { ok: false, message: 'The photo flow failed. Ask them to say cheese again.' };
-              } finally {
-                countdownDigit = 0;
-                busy = false;
-              }
+              const snap = await countdownAndSave({ holdStill: false, analyze: true });
+              if (snap.ok) autoSnapArmed = false;
+              return snap;
             },
           }),
           ...(poseMatcher ? {
             match_reference_pose: llm.tool({
-              description: 'Score the caller against the loaded reference pose with landmark angles. Use when they ask for a score or a reference comparison; prefer guide_pose for normal coaching tips.',
+              description: 'Compare the live frame to the reference skeleton. Say only the returned difference. If they match, the countdown and photo run inside this tool.',
               execute: async () => {
                 if (busy) return { ok: false, message: 'Already working. Wait a moment.' };
                 const cropped = latestCropped();
                 if (!cropped) return { ok: false, message: 'No camera frame yet. Ask them to keep FaceTime Video on.' };
+                let judged;
                 busy = true;
                 try {
-                  const encoded = await encodeFramePng(cropped);
-                  if (!encoded) return { ok: false, message: 'I could not read the camera frame. Please try again.' };
-                  const result = await poseMatcher.check(`data:image/png;base64,${encoded.base64Data}`);
-                  console.log(`[pose-matcher] ${result.status}${result.score === null ? '' : ` score=${result.score}`}`);
-                  return { ok: result.ok, message: `Speak English only. Say only this reference-pose feedback: ${result.feedback}` };
+                  judged = await judgeFrame(cropped);
                 } catch (error) {
                   console.warn('[pose-matcher] reference comparison failed', error instanceof Error ? error.message : error);
                   return { ok: false, message: 'Could not compare with the reference pose. Ask them to try again.' };
                 } finally { busy = false; }
+                return followCoachStep(judged, { speak: false, repeat: true });
               },
             }),
           } : {}),
@@ -304,21 +359,34 @@ export default defineAgent({
     });
 
     const stopGreeting = greetOnBridgeReady(ctx.room, () => session.generateReply({ instructions: greeting }));
-    lookTimer = setInterval(() => {
-      if (busy || looking || speaking || countdownDigit) return;
+    const runLook = async () => {
+      if (busy || looking || speaking || countdownDigit) return false;
       const cropped = latestCropped();
       if (!cropped) {
         if (!announcedWait) {
           announcedWait = true;
           console.log('[caller-vision] no caller camera frame yet');
         }
-        return;
+        return false;
       }
       looking = true;
-      silentLook(cropped).catch(error => {
+      try {
+        await silentLook(cropped);
+      } catch (error) {
         console.warn('[caller-vision] silent look failed', error instanceof Error ? error.message : error);
-      }).finally(() => { looking = false; });
-    }, LOOK_EVERY_MS);
+      } finally {
+        looking = false;
+      }
+      return true;
+    };
+    const armLook = (delay) => {
+      clearTimeout(lookTimer);
+      lookTimer = setTimeout(() => {
+        runLook().then(compared => armLook(compared ? LOOK_EVERY_MS : 1_500));
+      }, delay);
+    };
+    // First comparison starts as soon as a frame is in, instead of waiting out the full interval.
+    armLook(1_200);
     ctx.addShutdownCallback(async () => stopGreeting());
   },
 });

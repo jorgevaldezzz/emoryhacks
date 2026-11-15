@@ -49,5 +49,6 @@ describe('comparePoses', () => {
     assert.equal(result.status, 'adjust');
     assert.match(result.feedback, /Bend your left elbow more/i);
     assert.doesNotMatch(result.feedback, /differs from the reference/);
+    assert.doesNotMatch(result.feedback, /ask me to check/i);
   });
 });
