@@ -8,6 +8,7 @@ import { errorHandler } from "./middleware.js";
 import { resolveUploadPath } from "./storage.js";
 import authRoutes from "./routes/auth.js";
 import galleryRoutes from "./routes/gallery.js";
+import { createLocationRouter } from "./routes/locations.js";
 
 const PORT = Number(process.env.PORT || 8787);
 
@@ -20,7 +21,7 @@ function corsOrigins() {
     .filter(Boolean);
 }
 
-export function createApp() {
+export function createApp({ recommendLocations } = {}) {
   openDb();
 
   const app = express();
@@ -40,6 +41,7 @@ export function createApp() {
 
   app.use("/api/auth", authRoutes);
   app.use("/api/gallery", galleryRoutes);
+  app.use("/api/locations", createLocationRouter({ recommend: recommendLocations }));
 
   // Public image URLs (filenames are UUIDs).
   app.get("/uploads/:filename", (req, res, next) => {

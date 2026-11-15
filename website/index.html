@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>IMPhotogenic — Clickable Prototype</title>
-    <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./styles.css?v=2" />
   </head>
   <body>
     <div class="app-shell">
@@ -132,7 +132,7 @@
             </p>
 
             <label class="upload-zone" id="uploadZone" for="fileInput">
-              <input class="hidden" id="fileInput" type="file" accept="image/*" />
+              <input class="hidden" id="fileInput" type="file" accept="image/jpeg,image/png" />
               <div id="uploadEmpty">
                 <strong>Drag &amp; drop your inspiration photo</strong>
                 <span>or click to browse · JPG, PNG</span>
@@ -173,32 +173,14 @@
           <section class="panel">
             <span class="eyebrow">Location &amp; Recommendation</span>
             <h1>Spatial Background Proximity</h1>
-            <p class="sub" id="locationSub">Recommended spots near you that sync with your uploaded inspiration.</p>
-
-            <div class="map-stage" aria-label="Map of recommended photo spots">
-              <span class="map-pin you" style="left: 36%; top: 48%">You</span>
-              <span class="map-pin" style="left: 58%; top: 36%">1.2km SoHo</span>
-              <span class="map-pin" style="left: 72%; top: 62%">4.8km Brutalist</span>
-              <span class="map-pin" style="left: 48%; top: 68%">6.4km Glasshouse</span>
-            </div>
-
-            <div class="reco-list">
-              <article class="reco-card">
-                <span class="tag">Top chromatic sync</span>
-                <h3>SoHo Cobblestoned Alleyways</h3>
-                <div class="reco-meta">1.2km away · Recommended spot</div>
-              </article>
-              <article class="reco-card">
-                <span class="tag">Geometric alignment</span>
-                <h3>Brutalist Galleria &amp; Shadow Court</h3>
-                <div class="reco-meta">4.8km away · Recommended spot</div>
-              </article>
-              <article class="reco-card">
-                <span class="tag">Soft diffusion</span>
-                <h3>Glasshouse Conservatory</h3>
-                <div class="reco-meta">6.4km away · Recommended spot</div>
-              </article>
-            </div>
+            <p class="sub" id="locationSub">Share your location to find places that match your reference photo.</p>
+            <p class="reference-scene hidden" id="referenceScene" aria-live="polite"></p>
+            <p class="location-status" id="recommendationStatus" role="status" aria-live="polite"></p>
+            <button class="btn btn-secondary hidden" id="retryLocationBtn" type="button">Turn on location</button>
+            <button class="btn btn-secondary hidden" id="retryRecommendationsBtn" type="button">Try recommendations again</button>
+            <div class="map-stage hidden" id="proximityMap" role="img" aria-label="Map showing your location and nearby recommended places"></div>
+            <div class="reco-list" id="recommendationList" aria-live="polite"></div>
+            <p class="reco-attribution hidden" id="recommendationAttribution"></p>
           </section>
 
           <aside class="stack">
@@ -252,8 +234,8 @@
         <span class="eyebrow">Location access</span>
         <h2 id="locationModalTitle">Share your location?</h2>
         <p>
-          IMPhotogenic needs your current location to match nearby photo spots to your
-          uploaded inspiration.
+          To find nearby places, your reference photo will be analyzed by Grok and the location
+          you share will be used to search for matching photo spots.
         </p>
         <p class="modal-status" id="locationModalStatus" aria-live="polite"></p>
         <div class="btn-row modal-actions">
@@ -266,6 +248,6 @@
     <div class="toast" id="toast" role="status"></div>
 
     <script src="./config.js?v=1"></script>
-    <script src="./app.js?v=8"></script>
+    <script src="./app.js?v=10"></script>
   </body>
 </html>

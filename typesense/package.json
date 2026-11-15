@@ -12,6 +12,7 @@
     ".": "./src/search.mjs",
     "./client": "./src/client.mjs",
     "./geo": "./src/geo.mjs",
+    "./grok-background": "./src/grok_background.mjs",
     "./match": "./src/match.mjs",
     "./osm": "./src/osm.mjs",
     "./scene": "./src/scene.mjs",
@@ -26,7 +27,7 @@
     "search-key": "node --env-file-if-exists=.env.local scripts/create-search-key.mjs",
     "query": "node --env-file-if-exists=.env.local scripts/query.mjs",
     "match": "node --env-file-if-exists=.env.local scripts/match.mjs",
-    "check": "node --check src/client.mjs && node --check src/geo.mjs && node --check src/match.mjs && node --check src/osm.mjs && node --check src/scene.mjs && node --check src/search.mjs && node --check src/vision.mjs && node --check scripts/_cli.mjs && node --check scripts/_import.mjs && node --check scripts/create-collection.mjs && node --check scripts/create-search-key.mjs && node --check scripts/import-curated.mjs && node --check scripts/match.mjs && node --check scripts/query.mjs && node --check scripts/seed-from-osm.mjs",
+    "check": "node --check src/client.mjs && node --check src/geo.mjs && node --check src/grok_background.mjs && node --check src/match.mjs && node --check src/osm.mjs && node --check src/scene.mjs && node --check src/search.mjs && node --check src/vision.mjs && node --check scripts/_cli.mjs && node --check scripts/_import.mjs && node --check scripts/create-collection.mjs && node --check scripts/create-search-key.mjs && node --check scripts/import-curated.mjs && node --check scripts/match.mjs && node --check scripts/query.mjs && node --check scripts/seed-from-osm.mjs",
     "test": "node --test test/*.test.mjs"
   },
   "dependencies": {

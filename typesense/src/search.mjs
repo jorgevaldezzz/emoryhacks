@@ -107,6 +107,7 @@ function toSpot(hit, lat, lng) {
  * @param {number}   [opts.maxRadiusKm=40]  Ceiling when expanding.
  * @param {boolean}  [opts.expand=true]     Widen the radius while nothing is found.
  * @param {number}   [opts.limit=5]
+ * @param {number}   [opts.minResults=1]   Keep widening until this many hits are available.
  * @param {string}   [opts.query]           Free text ("mural", "skyline"). Omit to rank purely by distance.
  * @param {string[]} [opts.categories]      Any of CATEGORIES.
  * @param {boolean}  [opts.curatedOnly]     Hand-picked spots only.
@@ -132,6 +133,7 @@ export async function searchNearby(lat, lng, opts = {}) {
     maxRadiusKm = MAX_RADIUS_KM,
     expand = true,
     limit = DEFAULT_LIMIT,
+    minResults = 1,
     query,
     client = defaultClient(),
     signal,
@@ -181,7 +183,7 @@ export async function searchNearby(lat, lng, opts = {}) {
     }
 
     const hits = result.hits ?? [];
-    if (hits.length > 0 || radius === radii.at(-1)) {
+    if (hits.length >= Math.max(1, Number(minResults) || 1) || radius === radii.at(-1)) {
       const spots = hits.map(hit => toSpot(hit, latitude, longitude));
       return {
         spots,

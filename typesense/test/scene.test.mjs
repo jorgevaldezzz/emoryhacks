@@ -21,6 +21,16 @@ test('a mountain photo searches summits, not parking lots', () => {
   assert.match(query, /summit/);
 });
 
+test('tree and greenery backgrounds search parks, gardens, and viewpoints', () => {
+  const forest = searchOptionsFor({ scene: 'forest', tags: ['trees', 'green trail'] });
+  assert.deepEqual(forest.categories, ['park', 'garden', 'viewpoint']);
+  assert.match(forest.query, /trees/);
+  assert.match(forest.query, /trees green trail forest woods trail greenery/);
+
+  const park = searchOptionsFor({ scene: 'park', tags: ['scattered trees', 'open grass'] });
+  assert.deepEqual(park.categories, ['park', 'garden']);
+});
+
 test('unknown scenes filter nothing rather than guessing', () => {
   const { categories, query } = searchOptionsFor({ scene: 'volcano', tags: ['lava'] });
   assert.deepEqual(categories, []);

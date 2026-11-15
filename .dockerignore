@@ -1,0 +1,10 @@
+.git
+**/node_modules
+**/.env
+**/.env.*
+!**/.env.example
+**/captures
+typesense/data/typesense
+api/data/*.sqlite*
+api/uploads/*
+!api/uploads/.gitkeep

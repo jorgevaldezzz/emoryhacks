@@ -1,12 +1,16 @@
 FROM node:22-bookworm-slim
 
 WORKDIR /app
-COPY package.json package-lock.json* ./
-RUN npm install --omit=dev
+COPY package.json package-lock.json ./
+COPY api/package.json ./api/package.json
+COPY typesense/package.json ./typesense/package.json
+RUN npm ci --omit=dev
 
-COPY src ./src
-COPY data/.gitkeep ./data/
-COPY uploads/.gitkeep ./uploads/
+COPY api/src ./api/src
+COPY typesense/src ./typesense/src
+COPY api/data/.gitkeep ./api/data/
+COPY api/uploads/.gitkeep ./api/uploads/
+WORKDIR /app/api
 
 ENV PORT=8787
 ENV DATA_DIR=/data

@@ -19,7 +19,8 @@ function loadState() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return defaultState();
-    return { ...defaultState(), ...JSON.parse(raw) };
+    // Location coordinates are session-only and are never restored from storage.
+    return { ...defaultState(), ...JSON.parse(raw), userLocation: null };
   } catch {
     return defaultState();
   }
@@ -32,7 +33,7 @@ function saveState() {
       token: state.token,
       authMode: state.authMode,
       wantLocations: state.wantLocations,
-      userLocation: state.userLocation,
+      userLocation: null,
       uploadedName: state.uploadedName,
       // Keep large images out of localStorage; the API owns gallery bytes.
       uploadedDataUrl: null,
@@ -45,6 +46,8 @@ function saveState() {
 }
 
 let state = loadState();
+let recommendationState = { status: "idle", result: null, error: null };
+let recommendationRequestId = 0;
 
 const pages = [...document.querySelectorAll(".page")];
 const toastEl = document.getElementById("toast");
@@ -104,6 +107,8 @@ function setAuthMode(mode) {
 }
 
 function clearUpload() {
+  recommendationRequestId += 1;
+  recommendationState = { status: "idle", result: null, error: null };
   state.uploadedDataUrl = null;
   state.uploadedName = null;
   state.userLocation = null;
@@ -179,25 +184,185 @@ function renderUpload() {
   }
 }
 
+function setRecommendationStatus(status, result = null, error = null) {
+  recommendationState = { status, result, error };
+  renderLocation();
+}
+
+function renderRecommendationCards(spots) {
+  const list = document.getElementById("recommendationList");
+  list.replaceChildren();
+
+  for (const spot of spots.slice(0, 3)) {
+    const card = document.createElement("article");
+    card.className = "reco-card";
+
+    const category = document.createElement("span");
+    category.className = "tag";
+    const matchedTags = Array.isArray(spot.tags) ? spot.tags.slice(0, 2).join(" · ") : "";
+    category.textContent = [spot.category || "Photo spot", matchedTags].filter(Boolean).join(" · ");
+
+    const title = document.createElement("h3");
+    title.textContent = spot.name || "Nearby photo spot";
+
+    const description = document.createElement("p");
+    description.className = "reco-description";
+    description.textContent = spot.description || "A nearby place that may suit your reference photo.";
+
+    const meta = document.createElement("div");
+    meta.className = "reco-meta";
+    meta.textContent = [spot.distance_text, spot.heading_text].filter(Boolean).join(" · ");
+
+    card.append(category, title, description, meta);
+    if (typeof spot.maps_url === "string") {
+      try {
+        const mapUrl = new URL(spot.maps_url);
+        if (mapUrl.protocol === "https:" && mapUrl.hostname === "www.google.com") {
+          const link = document.createElement("a");
+          link.className = "map-link";
+          link.href = mapUrl.href;
+          link.target = "_blank";
+          link.rel = "noopener noreferrer";
+          link.textContent = "Open in Google Maps ↗";
+          card.append(link);
+        }
+      } catch {
+        // Ignore malformed map URLs from the recommendation service.
+      }
+    }
+    list.append(card);
+  }
+}
+
+function renderProximityMap(spots, lat, lng) {
+  const map = document.getElementById("proximityMap");
+  if (!map) return;
+  map.replaceChildren();
+  map.classList.remove("hidden");
+
+  const you = document.createElement("span");
+  you.className = "map-pin you";
+  you.textContent = "You";
+  you.style.left = "50%";
+  you.style.top = "50%";
+  map.append(you);
+
+  const latitudeScale = 110.574;
+  const longitudeScale = 111.32 * Math.cos((lat * Math.PI) / 180);
+  for (const [index, spot] of spots.slice(0, 3).entries()) {
+    const eastKm = (Number(spot.lng) - lng) * longitudeScale;
+    const northKm = (Number(spot.lat) - lat) * latitudeScale;
+    const left = Math.max(12, Math.min(88, 50 + eastKm * 4.1));
+    const top = Math.max(16, Math.min(86, 50 - northKm * 4.1));
+    const name = String(spot.name || "Nearby spot");
+    const shortName = name.length > 24 ? `${name.slice(0, 22).trimEnd()}…` : name;
+    const pin = document.createElement("span");
+    pin.className = "map-pin";
+    pin.style.left = `${left}%`;
+    pin.style.top = `${top}%`;
+    pin.style.setProperty("--pin-order", String(index));
+    pin.textContent = `${spot.distance_text || "Nearby"} ${shortName}`;
+    pin.title = name;
+    map.append(pin);
+  }
+}
+
+async function requestLocationRecommendations() {
+  const { lat, lng } = state.userLocation || {};
+  if (!state.uploadedDataUrl || !Number.isFinite(lat) || !Number.isFinite(lng)) return;
+
+  const requestId = ++recommendationRequestId;
+  recommendationState = { status: "loading", result: null, error: null };
+  renderLocation();
+
+  try {
+    const blob = await (await fetch(state.uploadedDataUrl)).blob();
+    const form = new FormData();
+    form.append("image", blob, state.uploadedName || "reference-photo.png");
+    form.append("lat", String(lat));
+    form.append("lng", String(lng));
+    const result = await api("/api/locations/recommendations", { method: "POST", body: form });
+    if (requestId !== recommendationRequestId) return;
+    recommendationState = { status: "ready", result, error: null };
+  } catch (error) {
+    if (requestId !== recommendationRequestId) return;
+    recommendationState = { status: "error", result: null, error: error.message || "Could not load nearby recommendations." };
+  }
+  renderLocation();
+}
+
 function renderLocation() {
   const sub = document.getElementById("locationSub");
-  if (!sub) return;
+  const status = document.getElementById("recommendationStatus");
+  const scene = document.getElementById("referenceScene");
+  const attribution = document.getElementById("recommendationAttribution");
+  const map = document.getElementById("proximityMap");
+  const retryLocation = document.getElementById("retryLocationBtn");
+  const retryRecommendations = document.getElementById("retryRecommendationsBtn");
+  const list = document.getElementById("recommendationList");
+  if (!sub || !status || !scene || !attribution || !map || !retryLocation || !retryRecommendations || !list) return;
 
-  if (state.userLocation?.lat != null) {
-    const { lat, lng, label } = state.userLocation;
-    sub.textContent = label
-      ? `Matching spots near ${label} (${lat.toFixed(4)}, ${lng.toFixed(4)}).`
-      : `Matching spots near your shared location (${lat.toFixed(4)}, ${lng.toFixed(4)}).`;
+  const { lat, lng } = state.userLocation || {};
+  const hasLocation = Number.isFinite(lat) && Number.isFinite(lng);
+  scene.classList.add("hidden");
+  attribution.classList.add("hidden");
+  map.classList.add("hidden");
+  map.replaceChildren();
+  retryRecommendations.classList.add("hidden");
+  list.replaceChildren();
+
+  if (!hasLocation) {
+    sub.textContent = state.userLocation?.denied
+      ? "Turn on your location to see recommendations! 😊"
+      : "Share your location to find nearby places that fit your reference photo.";
+    status.textContent = "";
+    retryLocation.classList.toggle("hidden", !state.userLocation?.denied);
     return;
   }
 
-  if (state.userLocation?.denied) {
-    sub.textContent =
-      "Location was not shared — showing demo recommendations. Enable location next time for nearby matches.";
+  retryLocation.classList.add("hidden");
+  sub.textContent = `Matching spots near your shared location (${lat.toFixed(4)}, ${lng.toFixed(4)}).`;
+
+  if (recommendationState.status === "idle") {
+    requestLocationRecommendations();
+    return;
+  }
+  if (recommendationState.status === "loading") {
+    status.textContent = "Grok is reading the background, then Typesense will find nearby spots…";
+    return;
+  }
+  if (recommendationState.status === "error") {
+    status.textContent = recommendationState.error;
+    retryRecommendations.classList.remove("hidden");
     return;
   }
 
-  sub.textContent = "Recommended spots near you that sync with your uploaded inspiration.";
+  const result = recommendationState.result || {};
+  const sceneLabel = result.reference_background || result.reference_scene;
+  if (sceneLabel || result.reference_group) {
+    const tags = Array.isArray(result.reference_tags) ? result.reference_tags : [];
+    scene.textContent = [
+      result.reference_group ? `Background group: ${result.reference_group.replaceAll("_", " ")}` : `Reference background: ${sceneLabel}`,
+      tags.length ? `Tags: ${tags.join(", ")}` : "",
+    ].filter(Boolean).join(" · ");
+    scene.classList.remove("hidden");
+  }
+
+  const spots = Array.isArray(result.spots) ? result.spots.slice(0, 3) : [];
+  if (result.ok && spots.length) {
+    sub.textContent = `Matching spots near your shared location (${lat.toFixed(4)}, ${lng.toFixed(4)}).`;
+    status.textContent = `Grok classified the background; Typesense found ${spots.length} nearby match${spots.length === 1 ? "" : "es"}.`;
+    renderProximityMap(spots, lat, lng);
+    renderRecommendationCards(spots);
+    if (result.attribution) {
+      attribution.textContent = result.attribution;
+      attribution.classList.remove("hidden");
+    }
+    return;
+  }
+
+  status.textContent = result.message || "No matching nearby places were found.";
+  if (!result.ok) retryRecommendations.classList.remove("hidden");
 }
 
 function openLocationModal() {
@@ -253,6 +418,8 @@ function requestUserLocation() {
         accuracy: position.coords.accuracy,
         denied: false,
       };
+      recommendationRequestId += 1;
+      recommendationState = { status: "idle", result: null, error: null };
       saveState();
       status.textContent = "Location received — opening recommendations…";
       toast("Location shared");
@@ -261,10 +428,7 @@ function requestUserLocation() {
     (error) => {
       state.userLocation = { denied: true, code: error.code };
       saveState();
-      status.textContent =
-        error.code === error.PERMISSION_DENIED
-          ? "Permission denied — continuing with demo spots…"
-          : "Location timed out — continuing with demo spots…";
+      status.textContent = "Turn on your location to see recommendations! 😊";
       allowBtn.disabled = false;
       setTimeout(goToLocationPage, 600);
     },
@@ -411,6 +575,8 @@ function ingestFile(file) {
 
   const reader = new FileReader();
   reader.onload = () => {
+    recommendationRequestId += 1;
+    recommendationState = { status: "idle", result: null, error: null };
     state.uploadedDataUrl = reader.result;
     state.uploadedName = file.name;
     saveState();
@@ -532,12 +698,19 @@ document.getElementById("allowLocationBtn").addEventListener("click", () => {
 document.getElementById("denyLocationBtn").addEventListener("click", (event) => {
   event.preventDefault();
   event.stopPropagation();
-  state.userLocation = null;
+  recommendationRequestId += 1;
+  recommendationState = { status: "idle", result: null, error: null };
+  state.userLocation = { denied: true };
   saveState();
   closeLocationModal();
-  if (location.hash.replace(/^#/, "").split("?")[0] !== "upload") {
-    location.hash = "#upload";
-  }
+  location.hash = "#location";
+});
+
+document.getElementById("retryLocationBtn").addEventListener("click", openLocationModal);
+
+document.getElementById("retryRecommendationsBtn").addEventListener("click", () => {
+  recommendationState = { status: "idle", result: null, error: null };
+  renderLocation();
 });
 
 document.getElementById("skipToGallery").addEventListener("click", () => {

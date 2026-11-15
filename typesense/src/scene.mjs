@@ -102,6 +102,45 @@ export const SCENES = {
   },
 };
 
+/** Fixed background families used by the website's location recommender. */
+export const BACKGROUND_GROUPS = {
+  park_skatepark_beltline_water: {
+    label: 'Park, skatepark, BeltLine & water',
+    tags: ['park', 'skatepark', 'beltline', 'water'],
+    categories: ['park', 'viewpoint', 'beach', 'pier'],
+    terms: 'park',
+    look: 'a park, skatepark, BeltLine trail, or water setting',
+  },
+  campus_architecture_marble: {
+    label: 'Campus, architecture & marble',
+    tags: ['campus', 'architecture', 'marble'],
+    categories: ['attraction', 'artwork', 'bridge', 'viewpoint'],
+    terms: 'architecture',
+    look: 'a campus, notable architecture, or marble building',
+  },
+  historic_sweet_auburn_landmark: {
+    label: 'Historic Sweet Auburn landmarks',
+    tags: ['historic', 'sweet auburn', 'landmark'],
+    categories: ['attraction', 'artwork', 'viewpoint'],
+    terms: 'historic',
+    look: 'a historic place, Sweet Auburn, or a landmark',
+  },
+  garden_greenery_ticketed: {
+    label: 'Garden, greenery & ticketed places',
+    tags: ['garden', 'greenery', 'ticketed'],
+    categories: ['garden', 'park'],
+    terms: 'garden',
+    look: 'a garden or lush greenery, especially a ticketed attraction',
+  },
+};
+
+export const BACKGROUND_GROUP_KEYS = Object.keys(BACKGROUND_GROUPS);
+
+export function normalizeBackgroundGroup(key) {
+  const normalized = String(key ?? '').trim().toLowerCase();
+  return BACKGROUND_GROUP_KEYS.includes(normalized) ? normalized : 'unknown';
+}
+
 /** The keys a vision model is allowed to answer with. */
 export const SCENE_KEYS = Object.keys(SCENES);
 
@@ -115,7 +154,8 @@ export function sceneFor(key) {
 
 /** A noun phrase for a key, e.g. "a mountain". Safe to say out loud. */
 export function sceneLabel(key) {
-  return sceneFor(key)?.label ?? 'something we could not place';
+  const group = BACKGROUND_GROUPS[normalizeBackgroundGroup(key)];
+  return group?.label ?? sceneFor(key)?.label ?? 'something we could not place';
 }
 
 /** Only keys we know; anything else becomes `unknown`. */
@@ -142,6 +182,15 @@ function cleanTerms(tags = []) {
  * @returns {{categories: string[], query: string}}
  */
 export function searchOptionsFor(profile = {}, { relax = false } = {}) {
+  const groupKey = normalizeBackgroundGroup(profile.group);
+  const group = BACKGROUND_GROUPS[groupKey];
+  if (group) {
+    return {
+      categories: relax ? [] : group.categories.filter(c => CATEGORIES.includes(c)),
+      query: group.terms,
+    };
+  }
+
   const key = normalizeSceneKey(profile.scene);
   const scene = sceneFor(key);
 

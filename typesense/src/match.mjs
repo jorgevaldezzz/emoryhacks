@@ -97,7 +97,9 @@ export async function matchReferencePhoto({
 
   const base = {
     ok: true,
-    reference_scene: seen.reference.scene,
+    reference_scene: seen.reference.scene ?? seen.reference.group,
+    reference_group: seen.reference.group,
+    reference_tags: seen.reference.tags ?? [],
     reference_background: seen.reference.background,
     current_scene: seen.current?.scene,
     similarity: seen.similarity,
@@ -169,7 +171,7 @@ export async function matchReferencePhoto({
 
 /** Our own wording, for when the model gives no sentence of its own. */
 function differenceLine({ reference, current }) {
-  const wanted = sceneLabel(reference.scene);
+  const wanted = sceneLabel(reference.group ?? reference.scene);
   if (!current) return `The reference is ${wanted}.`;
   return `The reference is ${wanted}; your background is ${sceneLabel(current.scene)}.`;
 }

@@ -416,6 +416,10 @@ img {
   align-items: start;
 }
 
+#page-location .split {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .panel {
   padding: 22px;
 }
@@ -486,14 +490,12 @@ img {
 
 .map-stage {
   position: relative;
-  min-height: 340px;
-  border-radius: 16px;
+  min-height: 420px;
+  margin-top: 22px;
+  border-radius: 26px;
   overflow: hidden;
   background:
     linear-gradient(180deg, rgba(255, 244, 242, 0.15), rgba(255, 244, 242, 0.55)),
-    radial-gradient(circle at 35% 45%, #ffb4b8 0 8px, transparent 9px),
-    radial-gradient(circle at 58% 38%, #ff7a68 0 7px, transparent 8px),
-    radial-gradient(circle at 72% 62%, #c22938 0 6px, transparent 7px),
     repeating-linear-gradient(90deg, transparent, transparent 28px, rgba(234, 214, 210, 0.45) 28px, rgba(234, 214, 210, 0.45) 29px),
     repeating-linear-gradient(0deg, transparent, transparent 28px, rgba(234, 214, 210, 0.45) 28px, rgba(234, 214, 210, 0.45) 29px),
     var(--map);
@@ -502,13 +504,17 @@ img {
 .map-pin {
   position: absolute;
   transform: translate(-50%, -100%);
-  padding: 0.35rem 0.65rem;
+  max-width: min(220px, 42vw);
+  padding: 0.48rem 0.78rem;
   border-radius: 999px;
   background: var(--ink);
   color: #fff;
   font-size: 0.75rem;
   font-weight: 700;
-  white-space: nowrap;
+  line-height: 1.25;
+  text-align: center;
+  white-space: normal;
+  z-index: calc(1 + var(--pin-order, 0));
 }
 
 .map-pin::after {
@@ -537,9 +543,10 @@ img {
 }
 
 .reco-card {
-  padding: 16px;
+  padding: 22px 24px;
   display: grid;
   gap: 8px;
+  border-radius: 22px;
 }
 
 .reco-card .tag {
@@ -554,6 +561,53 @@ img {
 .reco-card h3 {
   margin: 0;
   font-size: 1.15rem;
+}
+
+.reference-scene {
+  margin: 14px 0 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--bg);
+  color: var(--ink);
+  font-weight: 700;
+}
+
+@media (max-width: 600px) {
+  .map-stage {
+    min-height: 320px;
+  }
+
+  .reco-card {
+    padding: 18px;
+  }
+}
+
+.location-status {
+  margin: 12px 0 0;
+  color: var(--muted);
+}
+
+.reco-description {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.map-link {
+  width: fit-content;
+  font-weight: 700;
+  color: var(--accent-deep);
+  text-decoration: none;
+}
+
+.map-link:hover {
+  text-decoration: underline;
+}
+
+.reco-attribution {
+  margin: 14px 0 0;
+  color: var(--muted);
+  font-size: 0.78rem;
 }
 
 .reco-meta {
