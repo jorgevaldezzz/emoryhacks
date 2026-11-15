@@ -1,6 +1,10 @@
 // Set IMPHOTOGENIC_API_URL to the publicly deployed API origin for production.
 // The localhost default is only for running the API on the same computer.
 (function () {
+  // Set these to the Chert FaceTime line details for the deployed site.
+  window.IMPHOTOGENIC_POSE_PHONE = window.IMPHOTOGENIC_POSE_PHONE || "";
+  window.IMPHOTOGENIC_POSE_JOIN_CODE = window.IMPHOTOGENIC_POSE_JOIN_CODE || "";
+
   const fromStorage = (() => {
     try {
       return localStorage.getItem("IMPHOTOGENIC_API_URL");

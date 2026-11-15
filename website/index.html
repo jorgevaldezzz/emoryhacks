@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>IMPhotogenic — Clickable Prototype</title>
-    <link rel="stylesheet" href="./styles.css?v=5" />
+    <link rel="stylesheet" href="./styles.css?v=6" />
   </head>
   <body>
     <div class="app-shell">
@@ -120,7 +120,7 @@
 
       <!-- 3. POSE DIRECT & UPLOAD -->
       <main id="page-upload" class="page" data-page="upload">
-        <div class="split">
+        <div class="split pose-direct-layout">
           <section class="panel">
             <span class="eyebrow">Pose Direct &amp; Upload</span>
             <h1>Upload Inspiration &amp; Connect with Omni-AI</h1>
@@ -138,16 +138,24 @@
             </label>
           </section>
 
-          <aside class="panel stack">
-            <div>
-              <h2>Next step</h2>
-              <p class="sub" style="margin-bottom: 0">
-                Upload an inspiration photo for Chert to use as its pose reference.
-              </p>
+          <aside class="panel pose-connect-panel">
+            <span class="eyebrow">Connect to Pose Direct</span>
+            <h2>Join your live pose session</h2>
+            <p class="sub">Scan the QR code or call the number below, then enter the join code.</p>
+            <div class="pose-qr-wrap">
+              <img id="poseQr" class="pose-qr" alt="QR code to call Pose Direct" />
+              <span id="poseQrFallback" class="pose-qr-fallback hidden">QR code unavailable</span>
             </div>
-
-            <button class="btn btn-primary" id="continueUpload" type="button">
-              Use for Pose Coaching
+            <div class="pose-detail">
+              <span class="pose-detail-label">Join code</span>
+              <strong id="poseJoinCode">—</strong>
+            </div>
+            <div class="pose-detail">
+              <span class="pose-detail-label">Phone number</span>
+              <a id="posePhoneNumber" href="#">Not configured</a>
+            </div>
+            <button class="btn btn-secondary" id="continueUpload" type="button">
+              Save inspiration photo
             </button>
           </aside>
         </div>
@@ -175,6 +183,6 @@
     <div class="toast" id="toast" role="status"></div>
 
     <script src="./config.js?v=1"></script>
-    <script src="./app.js?v=12"></script>
+    <script src="./app.js?v=13"></script>
   </body>
 </html>
