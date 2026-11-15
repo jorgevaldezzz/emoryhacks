@@ -126,25 +126,25 @@ describe('nextCoachStep', () => {
     assert.equal(step.autoSnapArmed, false);
   });
 
-  it('asks instead of auto-snapping when the pose is merely close, and does not repeat the ask', () => {
-    const close = {
-      status: 'close',
+  it('speaks a non-matched cue with no focus joint, and does not repeat it', () => {
+    const noJointCue = {
+      status: 'adjust',
       focusJoint: null,
-      feedback: "You're pretty close to the reference pose — want me to go ahead and take the picture?",
+      feedback: 'Step a little closer to the camera so your whole body is visible.',
     };
-    const step = nextCoachStep(close, { autoSnapArmed: true });
+    const step = nextCoachStep(noJointCue, { autoSnapArmed: true });
     assert.equal(step.action, 'coach');
-    assert.equal(step.say, close.feedback);
+    assert.equal(step.say, noJointCue.feedback);
     assert.equal(step.autoSnapArmed, true);
 
     // No focusJoint means shouldSpeakPoseCue alone would never suppress a repeat —
     // afterCoachObservation must still remember the cue text itself.
     let memory = afterCoachObservation(
       { lastFocusJoint: null, lastCue: '', spokenJoints: new Set() },
-      close,
+      noJointCue,
       step.say,
     );
-    assert.equal(memory.lastCue, close.feedback);
+    assert.equal(memory.lastCue, noJointCue.feedback);
     assert.equal(memory.lastFocusJoint, null);
   });
 

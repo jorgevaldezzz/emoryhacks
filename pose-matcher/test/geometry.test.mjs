@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { CLOSE_TOLERANCE, comparePoseGeometry, cueForDelta, MATCH_TOLERANCE } from '../src/geometry.mjs';
+import { AUTO_SNAP_ACCURACY_PERCENT, comparePoseGeometry, cueForDelta, MATCH_TOLERANCE } from '../src/geometry.mjs';
 
 const point = (x, y, confidence = 0.95) => ({ x, y, confidence });
 function pose(shiftWrist = 0) {
@@ -106,21 +106,35 @@ describe('comparePoseGeometry', () => {
     assert.equal(result.focusJoint, 'left_elbow');
   });
 
-  it('offers to take the picture when the whole pose is close but not a perfect match', () => {
-    assert.equal(CLOSE_TOLERANCE, MATCH_TOLERANCE * 2);
+  it('snaps without asking once accuracy reaches the auto-snap threshold, even off a perfect match', () => {
+    assert.equal(AUTO_SNAP_ACCURACY_PERCENT, 55);
     const reference = pose();
     const current = pose();
     // Nudge every joint but the shoulders (which set origin/scale) by the same
-    // amount — close to the reference everywhere, but not inside MATCH_TOLERANCE.
+    // small amount — not a perfect match, but well above the 55% bar.
     for (const [key, landmark] of Object.entries(current.landmarks)) {
       if (key === 'left_shoulder' || key === 'right_shoulder') continue;
       landmark.x += 0.05;
     }
     const result = comparePoseGeometry({ reference, current });
-    assert.equal(result.status, 'close');
+    assert.equal(result.status, 'matched');
+    assert.ok(result.accuracyPercent >= AUTO_SNAP_ACCURACY_PERCENT);
     assert.equal(result.focusJoint, null);
-    assert.match(result.feedback, /pretty close/i);
-    assert.match(result.feedback, /take the picture/i);
+    assert.match(result.feedback, /good enough/i);
+    assert.doesNotMatch(result.feedback, /want me to|\?/); // no question asked — just snaps
+  });
+
+  it('keeps coaching instead of snapping while accuracy is still below the auto-snap threshold', () => {
+    const reference = pose();
+    const current = pose();
+    // Same shape of nudge as above, just larger — now below the 55% bar.
+    for (const [key, landmark] of Object.entries(current.landmarks)) {
+      if (key === 'left_shoulder' || key === 'right_shoulder') continue;
+      landmark.x += 0.12;
+    }
+    const result = comparePoseGeometry({ reference, current });
+    assert.equal(result.status, 'adjust');
+    assert.ok(result.accuracyPercent < AUTO_SNAP_ACCURACY_PERCENT);
   });
 });
 

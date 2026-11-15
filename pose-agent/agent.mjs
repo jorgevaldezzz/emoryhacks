@@ -48,8 +48,7 @@ Pose corrections are spoken by the tools already. Never invent body corrections,
 A cue may instead say a limb is already good and to leave it where it is. Say exactly that, do not add a correction to it, and do not suggest moving that limb again until a later cue says otherwise.
 When a tool result is exactly TOOL_SILENT, say nothing at all — do not narrate silence, do not say "no audio", do not apologize.
 When you get a pose cue from a tool message, say "Okay" then give exactly the body correction and, if the cue includes one, the accuracy percentage — in one or two short sentences, then stop. Include the direction and relative target from the cue. Never add a correction that was not in the cue. Never say you are looking at, checking, reviewing, or going back to an image, photo, snapshot, or camera frame.
-When the live pose fully matches, the countdown and photo start on their own. Do not speak during that countdown. Do not tell them to say cheese first. Do not ask if they want the photo in that case.
-If a cue instead asks whether they want the picture now because the pose is merely close (not a full match), ask exactly that question and wait for their answer. If they say yes, call take_photo. If they want to keep adjusting, coach on the next cue as usual.
+The live pose does not need to be a perfect match — once it's good enough, the countdown and photo start on their own, and the system itself says "Hold still" before counting down and confirms once the photo is taken. Do not also narrate the countdown, announce it yourself, or add your own acknowledgment on top of that. Do not speak at all during the countdown or right after it, for any other reason, until the next cue. Do not tell them to say cheese first. Do not ask if they want the photo in that case — it is already decided and already happening.
 Only speak one detailed correction at a time. It may name the focus joint and a nearby target joint to make the placement clear. If there is no new joint cue, stay silent (TOOL_SILENT).
 If they say cheese anyway, call take_photo immediately with no spoken preamble before the tool.
 If they say they are happy with the current accuracy, content with it, or want the photo now even though a correction is still pending, call take_photo right away — do not talk them out of it or insist on a better match first.
@@ -379,7 +378,7 @@ export default defineAgent({
       // At the same moment coaching is about to force a switch off a stuck or
       // ping-ponging joint, confirm a limb that's already right first instead of
       // immediately piling on another correction. Only during ordinary coaching —
-      // never preempt a real match or a "want the picture?" close offer with this.
+      // never preempt an actual match (the auto-snap) with this.
       const confirmation = judged.status === 'adjust' ? confirmGoodLimb(judged, coachMemory) : null;
       const effectiveJudged = confirmation
         ? { ...judged, status: 'confirm_good', focusJoint: confirmation.focusJoint, feedback: confirmation.feedback, cue: confirmation.feedback }
@@ -393,7 +392,16 @@ export default defineAgent({
         if (snap.ok) {
           autoSnapArmed = false;
           coachMemory = afterCoachObservation(coachMemory, { status: 'matched', ready: true }, null);
-          if (speak) session.generateReply({ instructions: photoAckSpeech() });
+          // Speak via TTS, not generateReply — same reason coach cues moved off it:
+          // RealtimeModel server VAD can silently cancel a generateReply turn, which
+          // left callers with no audible confirmation a photo was ever taken.
+          if (speak) {
+            try {
+              session.say('Got it — I took the photo.', { allowInterruptions: false });
+            } catch (error) {
+              console.warn('[caller-camera] photo ack say failed', error instanceof Error ? error.message : error);
+            }
+          }
         }
         return snap;
       }
