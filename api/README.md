@@ -61,6 +61,40 @@ docker run --rm -p 8787:8787 \
   imphotogenic-api
 ```
 
+### Render dashboard settings
+
+The API depends on the root npm workspace because its recommendation route
+imports `typesense/`. Configure the Render web service connected to this repo:
+
+1. Set the branch to `main` and leave **Root Directory** empty (repository
+   root).
+2. Set **Runtime** to **Docker**, **Dockerfile Path** to `api/Dockerfile`, and
+   **Docker Context Directory** to `.` (repository root).
+3. Add `MONGODB_URI`, `JWT_SECRET`, `GALLERY_INGEST_SECRET`, and
+   `CORS_ORIGIN`. For this site, set `CORS_ORIGIN` to
+   `https://www.myboyfriendtakeshorriblephotos.club,https://myboyfriendtakeshorriblephotos.club`.
+4. Add `XAI_API_KEY`, `TYPESENSE_URL`, and `TYPESENSE_SEARCH_KEY`. The
+   Typesense URL must be reachable from Render; do not use `localhost` unless
+   Typesense runs in the same container.
+5. Save, then choose **Manual Deploy → Deploy latest commit**. Confirm the
+   deployed commit includes `api/src/routes/locations.js` and the build
+   succeeds.
+
+Render's root directory controls which repository files are available during
+the build, and Dockerfile/context paths are relative to that root. This service
+must use the repository root so the image can copy both `api/` and `typesense/`.
+See [Render monorepo support](https://render.com/docs/monorepo-support) and
+[Render's Docker service settings](https://render.com/docs/docker).
+
+Verify the route exists after deployment with:
+
+```sh
+curl -i -X POST https://imphotogenic-api.onrender.com/api/locations/recommendations
+```
+
+Without a bearer token this should return `401 Unauthorized`; `404 Cannot POST`
+means Render is still serving an older deployment or the wrong service.
+
 ## Wire the website (Vercel)
 
 Deploy the API to a public Node host, then set its public origin in
