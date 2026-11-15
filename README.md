@@ -6,13 +6,13 @@ Emory Hacks Github Repo
 | Path | Role |
 |------|------|
 | `website/` | Static IMPhotogenic UI (host on Vercel) |
-| `api/` | Auth + gallery database/storage (host on a **separate** server) |
+| `api/` | Auth + MongoDB Atlas gallery API (host on a **separate** server) |
 | `pose-agent/` | Chert FaceTime pose coach; uploads snaps into the gallery API |
 | `pose-matcher/` | Landmark comparison library used by the agent |
 
-Passwords are **bcrypt-hashed** in the API. Gallery images live on the API
-host’s disk; metadata and users live in SQLite. See [`api/README.md`](api/README.md)
-for deploy env vars and how to point the Vercel site + Chert agent at that host.
+Passwords are **bcrypt-hashed** in the API. Users, gallery metadata, and image
+bytes live in MongoDB Atlas. Each account has a 100 MiB gallery quota by
+default. See [`api/README.md`](api/README.md) for configuration and deployment.
 
 ## Standalone pose matcher
 

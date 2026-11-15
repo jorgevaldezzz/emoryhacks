@@ -13,13 +13,13 @@ const router = Router();
 
 /**
  * @param {import('express').Request} req
- * @param {{ id: string, filename: string, originalName?: string | null, note?: string | null, source: string, createdAt: string }} item
+ * @param {{ id?: string, _id?: string, originalName?: string | null, note?: string | null, source: string, createdAt: string }} item
  */
 function withUrl(req, item) {
   const base = `${req.protocol}://${req.get("host")}`;
   return {
     ...item,
-    url: `${base}/uploads/${encodeURIComponent(item.filename)}`,
+    url: `${base}/uploads/${encodeURIComponent(item.id || item._id)}`,
   };
 }
 
@@ -54,19 +54,28 @@ function readImagePayload(req) {
   return null;
 }
 
-router.get("/", requireAuth, (req, res) => {
-  const items = listGalleryForUser(req.user.id).map((item) => withUrl(req, item));
-  res.json({ items });
+router.get("/", requireAuth, async (req, res) => {
+  const items = (await listGalleryForUser(req.user.id)).map((item) =>
+    withUrl(req, { ...item, id: item._id })
+  );
+  const owner = await findUserById(req.user.id);
+  res.json({
+    items,
+    storage: {
+      usedBytes: owner?.galleryBytes || 0,
+      quotaBytes: owner?.galleryQuotaBytes,
+    },
+  });
 });
 
-router.post("/", requireAuth, upload.single("image"), (req, res, next) => {
+router.post("/", requireAuth, upload.single("image"), async (req, res, next) => {
   try {
     const payload = readImagePayload(req);
     if (!payload) {
       return res.status(400).json({ error: "Provide an image file or imageBase64" });
     }
 
-    const item = saveGalleryImage({
+    const item = await saveGalleryImage({
       userId: req.user.id,
       buffer: payload.buffer,
       mime: payload.mime,
@@ -80,9 +89,9 @@ router.post("/", requireAuth, upload.single("image"), (req, res, next) => {
   }
 });
 
-router.delete("/:id", requireAuth, (req, res, next) => {
+router.delete("/:id", requireAuth, async (req, res, next) => {
   try {
-    const removed = removeGalleryImage(req.params.id, req.user.id);
+    const removed = await removeGalleryImage(req.params.id, req.user.id);
     if (!removed) {
       return res.status(404).json({ error: "Gallery item not found" });
     }
@@ -97,14 +106,14 @@ router.delete("/:id", requireAuth, (req, res, next) => {
  * Auth: X-Ingest-Secret matching GALLERY_INGEST_SECRET.
  * Identify the account with `email` (preferred) or `userId`.
  */
-router.post("/chert", requireIngestSecret, upload.single("image"), (req, res, next) => {
+router.post("/chert", requireIngestSecret, upload.single("image"), async (req, res, next) => {
   try {
     const email = String(req.body?.email || "").trim().toLowerCase();
     const userId = String(req.body?.userId || "").trim();
 
     let user = null;
     if (email) {
-      user = findUserByEmail(email);
+      user = await findUserByEmail(email);
       if (!user) {
         return res.status(404).json({
           error:
@@ -112,7 +121,7 @@ router.post("/chert", requireIngestSecret, upload.single("image"), (req, res, ne
         });
       }
     } else if (userId) {
-      user = findUserById(userId);
+      user = await findUserById(userId);
       if (!user) {
         return res.status(404).json({ error: "No account for that userId" });
       }
@@ -125,7 +134,7 @@ router.post("/chert", requireIngestSecret, upload.single("image"), (req, res, ne
       return res.status(400).json({ error: "Provide capture image bytes" });
     }
 
-    const item = saveGalleryImage({
+    const item = await saveGalleryImage({
       userId: user.id,
       buffer: payload.buffer,
       mime: payload.mime || "image/png",

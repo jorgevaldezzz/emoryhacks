@@ -1,11 +1,10 @@
 import express from "express";
 import cors from "cors";
-import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { openDb, closeDb, UPLOAD_DIR } from "./db.js";
+import { openDb, closeDb } from "./db.js";
 import { errorHandler } from "./middleware.js";
-import { resolveUploadPath } from "./storage.js";
+import { getGalleryImage } from "./storage.js";
 import authRoutes from "./routes/auth.js";
 import galleryRoutes from "./routes/gallery.js";
 import { createLocationRouter } from "./routes/locations.js";
@@ -22,8 +21,6 @@ function corsOrigins() {
 }
 
 export function createApp({ recommendLocations } = {}) {
-  openDb();
-
   const app = express();
   app.set("trust proxy", 1);
 
@@ -33,7 +30,7 @@ export function createApp({ recommendLocations } = {}) {
       credentials: true,
     })
   );
-  app.use(express.json({ limit: "10mb" }));
+  app.use(express.json({ limit: "12mb" }));
 
   app.get("/health", (_req, res) => {
     res.json({ ok: true, service: "imphotogenic-api" });
@@ -43,14 +40,17 @@ export function createApp({ recommendLocations } = {}) {
   app.use("/api/gallery", galleryRoutes);
   app.use("/api/locations", createLocationRouter({ recommend: recommendLocations }));
 
-  // Public image URLs (filenames are UUIDs).
-  app.get("/uploads/:filename", (req, res, next) => {
+  // Gallery image bytes are stored in MongoDB with their metadata.
+  app.get("/uploads/:id", async (req, res, next) => {
     try {
-      const full = resolveUploadPath(req.params.filename);
-      if (!fs.existsSync(full)) {
+      const item = await getGalleryImage(req.params.id);
+      if (!item) {
         return res.status(404).json({ error: "Not found" });
       }
-      res.sendFile(full);
+      const bytes = Buffer.isBuffer(item.image)
+        ? item.image
+        : Buffer.from(item.image.buffer).subarray(0, item.image.position);
+      res.type(item.mimeType).set("Cache-Control", "private, max-age=3600").send(bytes);
     } catch (err) {
       next(err);
     }
@@ -72,19 +72,25 @@ if (isMain()) {
     process.exit(1);
   }
 
-  const app = createApp();
-  const server = app.listen(PORT, () => {
-    console.log(`[api] listening on http://0.0.0.0:${PORT}`);
-    console.log(`[api] uploads → ${path.resolve(UPLOAD_DIR)}`);
-  });
+  openDb()
+    .then(() => {
+      const app = createApp();
+      const server = app.listen(PORT, () => {
+        console.log(`[api] listening on http://0.0.0.0:${PORT}`);
+      });
 
-  function shutdown() {
-    server.close(() => {
-      closeDb();
-      process.exit(0);
+      async function shutdown() {
+        server.close(async () => {
+          await closeDb();
+          process.exit(0);
+        });
+      }
+
+      process.on("SIGINT", shutdown);
+      process.on("SIGTERM", shutdown);
+    })
+    .catch((err) => {
+      console.error("[api] MongoDB connection failed:", err.message);
+      process.exit(1);
     });
-  }
-
-  process.on("SIGINT", shutdown);
-  process.on("SIGTERM", shutdown);
 }
