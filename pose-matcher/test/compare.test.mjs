@@ -35,4 +35,14 @@ describe('checkPoseVisibility', () => {
     assert.equal(result.status, 'insufficient_visibility');
     assert.match(result.feedback, /step into frame/i);
   });
+
+  it('allows a waist-up FaceTime crop when both arms match a full-body reference', () => {
+    const waistUp = pose({
+      left_ankle: point(0.4, 1.2, 0), right_ankle: point(0.6, 1.2, 0),
+      left_knee: point(0.4, 0.95, 0.2), right_knee: point(0.6, 0.95, 0.2),
+    });
+    const result = checkPoseVisibility(pose(), waistUp);
+    assert.equal(result.status, 'pose_visible');
+    assert.equal(result.coverage, 0.5);
+  });
 });
