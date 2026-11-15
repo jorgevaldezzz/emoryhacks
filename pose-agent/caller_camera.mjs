@@ -120,7 +120,7 @@ export function watchCallerCamera(room, caller) {
  * Preserves aspect ratio. Never force a square — that was squashing cheese snaps
  * after the FaceTime chrome crop. Optional maxSide only downscales with fit:inside.
  * @param {VideoFrame} frame
- * @param {{ maxSide?: number }} [options]
+ * @param {{ maxSide?: number, mirrorHorizontally?: boolean }} [options]
  * @returns {Promise<{ base64Data: string, bytes: Buffer, width: number, height: number } | null>}
  */
 export async function encodeFramePng(frame, options = {}) {
@@ -130,6 +130,7 @@ export async function encodeFramePng(frame, options = {}) {
   let pipeline = sharp(Buffer.from(rgba.data), {
     raw: { width: rgba.width, height: rgba.height, channels: 4 },
   });
+  if (options.mirrorHorizontally) pipeline = pipeline.flop();
   const maxSide = options.maxSide;
   if (Number.isFinite(maxSide) && maxSide > 0) {
     pipeline = pipeline.resize({

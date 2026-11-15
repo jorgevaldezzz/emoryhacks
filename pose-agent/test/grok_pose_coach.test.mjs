@@ -35,6 +35,8 @@ describe('Grok pose coaching', () => {
     assert.equal(images.length, 2);
     assert.ok(images.every(item => item.image_url.startsWith('data:image/png;base64,')));
     assert.match(content.find(item => item.type === 'input_text').text, /skeleton overlays/i);
+    assert.match(content.find(item => item.type === 'input_text').text, /own anatomical sides/i);
+    assert.match(content.find(item => item.type === 'input_text').text, /never the side of the screen/i);
     assert.equal(request.body.text.format.type, 'json_schema');
     assert.equal(result.status, 'adjust');
     assert.equal(result.focusJoint, 'left_wrist');

@@ -24,6 +24,7 @@ const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 // Live frames are compared to that skeleton. The caller does not pick the correction or decide when they match.
 const instructions = `You are a pose coach on a FaceTime video call. The caller sees your AI face.
 Always speak English only. Never switch languages.
+Left and right always mean the caller's own anatomical sides. Never substitute the side where a limb appears on the screen.
 You run this call. The caller is matching their body to the reference pose. Do not wait for them to ask for help, choose a correction, or decide that they are lined up.
 Each live frame is compared to the reference skeleton. The pipeline is coach, then match, then countdown, then snap.
 When you get a pose cue, say "Okay" then give only that one specific body correction in one short sentence, then stop. Include the direction and relative target from the cue. Never add a correction that was not in the cue. Never say you are looking at, checking, reviewing, or going back to an image, photo, snapshot, or camera frame.
@@ -133,7 +134,9 @@ export default defineAgent({
      */
     const judgeFrame = async (cropped) => {
       if (poseMatcher) {
-        const encoded = await encodeFramePng(cropped);
+        // The FaceTime caller feed is mirrored. Unmirror only the inference input
+        // so MediaPipe's left/right landmarks match the unmirrored reference photo.
+        const encoded = await encodeFramePng(cropped, { mirrorHorizontally: true });
         if (!encoded) return { status: 'unreadable', feedback: null, seen: false, ready: false, cue: null };
         const result = await poseMatcher.check(`data:image/png;base64,${encoded.base64Data}`);
         const seen = result.status !== 'person_not_visible' && result.status !== 'reference_missing';
