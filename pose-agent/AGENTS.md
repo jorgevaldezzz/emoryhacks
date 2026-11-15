@@ -69,15 +69,20 @@
 - `anything else`: Run chert doctor. Each failed check says what to fix.
 <!-- chert:end -->
 
-## Future pose reference uploads
+## Pose reference uploads
 
-Development loads a local reference from `POSE_REFERENCE_IMAGE` or the first
-image in `reference-images/`. The call compares each live frame to that pose's
-skeleton, speaks the difference, then counts down and snaps on a match.
-`guide_pose` and `match_reference_pose` use the same comparison. Replace this
-with a caller-upload flow later: accept a
-reference image through the Chert experience, validate and store it only for
-that call/session, then run `setReference()` on the pose matcher. MediaPipe
-processes the reference locally; only landmarks and correction text are used by
-the voice agent. Do not hard-code a developer-specific path or commit uploaded
-images or credentials.
+The call compares each live frame to the reference pose's skeleton, speaks the
+difference, then counts down and snaps on a match. `guide_pose` and
+`match_reference_pose` use the same comparison.
+
+When `GALLERY_API_URL`, `GALLERY_INGEST_SECRET`, and `GALLERY_USER_EMAIL` are
+set, `inspiration_reference.mjs` fetches that account's most recent website
+"Inspiration upload" from the gallery API, runs MediaPipe on it, saves the
+resulting skeleton overlay back to the gallery (note "Inspiration skeleton",
+`source: "upload"`), and hands the original photo to `setReference()` as the
+live coaching reference — this is the caller-upload flow; nothing further to
+build there. When that env isn't set, or the account has no upload yet, it
+falls back to a local reference: `POSE_REFERENCE_IMAGE` or the first image in
+`reference-images/`. MediaPipe processes the reference locally; only
+landmarks and correction text are used by the voice agent. Do not hard-code a
+developer-specific path or commit uploaded images or credentials.

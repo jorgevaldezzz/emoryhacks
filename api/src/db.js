@@ -75,6 +75,14 @@ export async function findGalleryItemForUser(id, userId) {
   return collection("gallery").findOne({ _id: id, ...(userId ? { userId } : {}) });
 }
 
+export async function findLatestGalleryItemBySource(userId, source) {
+  return collection("gallery")
+    .find({ userId, source }, { projection: { image: 0 } })
+    .sort({ createdAt: -1 })
+    .limit(1)
+    .next();
+}
+
 export async function insertGalleryItem(item) {
   const session = client.startSession();
   let reserved = false;

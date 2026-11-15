@@ -69,5 +69,6 @@ user's gallery.
 | GET | `/api/gallery` | Bearer | List gallery items and storage usage |
 | POST | `/api/gallery` | Bearer | Save an upload to the current user's gallery |
 | DELETE | `/api/gallery/:id` | Bearer | Remove an item and reclaim quota |
-| POST | `/api/gallery/chert` | `X-Ingest-Secret` | Save a Chert capture to a user's gallery |
+| POST | `/api/gallery/chert` | `X-Ingest-Secret` | Save a Chert capture (`source: "chert"`) or a pose-agent-generated skeleton (`source: "upload"`) to a user's gallery |
+| GET | `/api/gallery/chert/reference` | `X-Ingest-Secret` | Look up a user's latest inspiration upload, for the pose-agent to fetch and derive a skeleton from |
 | GET | `/uploads/:id` | None | Serve stored image bytes |
