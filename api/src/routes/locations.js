@@ -1,8 +1,7 @@
 import { Router } from "express";
 import multer from "multer";
 import { isValidLatLng } from "@emoryhacks/typesense/geo";
-import { createGrokBackgroundClassifier } from "@emoryhacks/typesense/grok-background";
-import { matchReferencePhoto } from "@emoryhacks/typesense/match";
+import { randomNearbySpots } from "@emoryhacks/typesense/match";
 import { requireAuth } from "../middleware.js";
 
 const upload = multer({
@@ -10,17 +9,8 @@ const upload = multer({
   limits: { fileSize: 8 * 1024 * 1024, files: 1 },
 });
 
-const classifier = createGrokBackgroundClassifier();
-
-async function recommendNearby({ image, lat, lng }) {
-  return matchReferencePhoto({
-    reference: image,
-    lat,
-    lng,
-    limit: 3,
-    minResults: 3,
-    compare: classifier,
-  });
+async function recommendNearby({ lat, lng }) {
+  return randomNearbySpots({ lat, lng, limit: 3 });
 }
 
 function imageUpload(req, res, next) {

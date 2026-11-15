@@ -42,6 +42,87 @@ function reasonFor(error) {
   return 'unavailable';
 }
 
+function spotKey(spot) {
+  return spot.id ?? `${spot.name ?? ''}:${spot.lat ?? ''}:${spot.lng ?? ''}`;
+}
+
+function pickRandom(spots, count) {
+  const shuffled = [...spots];
+  for (let index = shuffled.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]];
+  }
+  return shuffled.slice(0, count);
+}
+
+/** Fill the recommendations with randomly selected nearby Typesense spots. */
+async function fillWithRandomNearby(spots, lat, lng, opts) {
+  const limit = Math.max(1, Number(opts.limit) || 3);
+  if (spots.length >= limit) return { spots: spots.slice(0, limit) };
+
+  const nearby = await searchNearby(lat, lng, {
+    ...opts,
+    query: undefined,
+    categories: undefined,
+    limit: 50,
+    minResults: 50,
+  });
+  const seen = new Set(spots.map(spotKey));
+  const candidates = nearby.spots.filter(spot => !seen.has(spotKey(spot)));
+  const additions = pickRandom(candidates, limit - spots.length);
+
+  return {
+    spots: [...spots, ...additions],
+    radius_km: nearby.radius_km,
+    attribution: nearby.attribution,
+  };
+}
+
+async function randomFallback(lat, lng, opts) {
+  const nearby = await fillWithRandomNearby([], lat, lng, opts);
+  return nearby.spots.length ? nearby : null;
+}
+
+/** Random nearby spots for the website's temporary recommendation placeholder. */
+export async function randomNearbySpots({ lat, lng, limit = 3, ...opts } = {}) {
+  if (!Number.isFinite(Number(lat)) || !Number.isFinite(Number(lng))) {
+    return {
+      ok: false,
+      reason: 'no_location',
+      spots: [],
+      message: 'Share a location to see nearby photo spots.',
+    };
+  }
+
+  try {
+    const nearby = await randomFallback(lat, lng, { ...opts, limit });
+    if (!nearby) {
+      return {
+        ok: false,
+        reason: 'no_results',
+        spots: [],
+        message: 'No photo spots are available nearby yet.',
+      };
+    }
+    return {
+      ok: true,
+      reason: 'random_fallback',
+      matches: false,
+      spots: nearby.spots,
+      radius_km: nearby.radius_km,
+      attribution: nearby.attribution,
+      message: 'Here are some photo spots picked at random near you.',
+    };
+  } catch {
+    return {
+      ok: false,
+      reason: 'unavailable',
+      spots: [],
+      message: 'Nearby photo spots could not be loaded right now.',
+    };
+  }
+}
+
 /**
  * Compare the caller's background to a reference photo, and find somewhere
  * nearby that matches when it does not.
@@ -84,6 +165,24 @@ export async function matchReferencePhoto({
   try {
     seen = await compare({ reference, current, env, fetchImpl, signal: opts.signal });
   } catch (error) {
+    if (Number.isFinite(Number(lat)) && Number.isFinite(Number(lng))) {
+      try {
+        const nearby = await randomFallback(lat, lng, opts);
+        if (nearby) {
+          return {
+            ok: true,
+            reason: 'random_fallback',
+            matches: false,
+            spots: nearby.spots,
+            radius_km: nearby.radius_km,
+            attribution: nearby.attribution,
+            message: 'I could not read the background clearly, so here are three random photo spots nearby.',
+          };
+        }
+      } catch {
+        // Keep the readable classifier failure when Typesense cannot provide a fallback.
+      }
+    }
     return {
       ok: false,
       reason: reasonFor(error),
@@ -130,12 +229,22 @@ export async function matchReferencePhoto({
   }
 
   let found;
+  let usedNearbyFallback = false;
   try {
     found = await spotsLikeScene(seen.reference, lat, lng, opts);
     // The categories can be too narrow in a thinly-mapped city. Ask again on
     // the words alone before telling someone there is nothing out there.
     if (found.spots.length === 0 && relax) {
       found = await spotsLikeScene(seen.reference, lat, lng, { ...opts, relax: true });
+    }
+    if (found.spots.length < (Math.max(1, Number(opts.limit) || 3))) {
+      usedNearbyFallback = true;
+      const filled = await fillWithRandomNearby(found.spots, lat, lng, opts);
+      found = {
+        ...found,
+        ...filled,
+        attribution: [...new Set([found.attribution, filled.attribution].filter(Boolean))].join(' '),
+      };
     }
   } catch (error) {
     return {
@@ -161,11 +270,13 @@ export async function matchReferencePhoto({
   return {
     ...base,
     matches: false,
-    reason: 'found',
+    reason: usedNearbyFallback ? 'random_fill' : 'found',
     spots: found.spots,
     radius_km: found.radius_km,
     attribution: found.attribution,
-    message: `${difference} ${summarizeForVoice(found.spots)}`,
+    message: usedNearbyFallback
+      ? `${difference} Here are nearby photo spots selected at random; they may not fully match the background.`
+      : `${difference} ${summarizeForVoice(found.spots)}`,
   };
 }
 

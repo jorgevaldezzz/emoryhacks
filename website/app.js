@@ -352,8 +352,11 @@ function renderLocation() {
 
   const spots = Array.isArray(result.spots) ? result.spots.slice(0, 3) : [];
   if (result.ok && spots.length) {
-    sub.textContent = `Matching spots near your shared location (${lat.toFixed(4)}, ${lng.toFixed(4)}).`;
-    status.textContent = `Grok classified the background; Typesense found ${spots.length} nearby match${spots.length === 1 ? "" : "es"}.`;
+    const usedFallback = result.reason === "random_fallback" || result.reason === "random_fill";
+    sub.textContent = `${usedFallback ? "Random photo spots" : "Matching spots"} near your shared location (${lat.toFixed(4)}, ${lng.toFixed(4)}).`;
+    status.textContent = usedFallback
+      ? (result.message || `Typesense found ${spots.length} nearby photo spot${spots.length === 1 ? "" : "s"}.`)
+      : `Grok classified the background; Typesense found ${spots.length} nearby match${spots.length === 1 ? "" : "es"}.`;
     renderProximityMap(spots, lat, lng);
     renderRecommendationCards(spots);
     if (result.attribution) {
