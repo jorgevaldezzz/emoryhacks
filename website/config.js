@@ -13,10 +13,9 @@
     window.location.hostname,
   );
 
-  window.IMPHOTOGENIC_API_URL =
-    fromStorage ||
-    window.IMPHOTOGENIC_API_URL ||
-    (isLocalSite
-      ? "http://127.0.0.1:8787"
-      : "https://imphotogenic-api.onrender.com");
+  // A localhost override saved during local development must not leak into a
+  // hosted site, where it would point each visitor at their own computer.
+  window.IMPHOTOGENIC_API_URL = isLocalSite
+    ? fromStorage || window.IMPHOTOGENIC_API_URL || "http://127.0.0.1:8787"
+    : "https://imphotogenic-api.onrender.com";
 })();
