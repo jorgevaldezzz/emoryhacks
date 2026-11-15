@@ -33,9 +33,63 @@ export function spokenCorrection(text) {
 /** Tool result when the caller should hear nothing. Not a line to read aloud. */
 export const noSpeech = 'Instruction to you, not a line for the caller: produce no audio on this turn.';
 
-/** Suppress repeated automatic corrections for the same focus joint. */
-export function shouldSpeakPoseCue(result, lastFocusJoint) {
-  return !result?.focusJoint || result.focusJoint !== lastFocusJoint;
+/**
+ * Empty coaching memory for a new call or after a successful match/snap.
+ * @returns {{ lastFocusJoint: null, lastCue: string, spokenJoints: Set<string> }}
+ */
+export function emptyCoachMemory() {
+  return { lastFocusJoint: null, lastCue: '', spokenJoints: new Set() };
+}
+
+/**
+ * Joints already coached this pose attempt — Grok should pick a different gap next.
+ * @param {Iterable<string> | null | undefined} spokenJoints
+ * @returns {string[]}
+ */
+export function excludeJointsForCompare(spokenJoints) {
+  return [...(spokenJoints ?? [])].filter(Boolean);
+}
+
+/**
+ * Suppress the same focus joint until coaching moves on (or memory is cleared on match).
+ * @param {{ focusJoint?: string | null } | null | undefined} result
+ * @param {string | null | undefined} lastFocusJoint
+ * @param {Set<string> | null | undefined} [spokenJoints]
+ */
+export function shouldSpeakPoseCue(result, lastFocusJoint, spokenJoints = null) {
+  const joint = result?.focusJoint;
+  if (!joint) return true;
+  if (spokenJoints?.has(joint)) return false;
+  return joint !== lastFocusJoint;
+}
+
+/**
+ * Update cue memory after a look. Visibility misses keep memory so a flicker does
+ * not re-nag the same wrist tip; a match clears it for the next pose attempt.
+ * @param {{ lastFocusJoint: string | null, lastCue: string, spokenJoints: Set<string> }} memory
+ * @param {{ status?: string, focusJoint?: string | null, ready?: boolean } | null | undefined} judged
+ * @param {string | null | undefined} spokenCue
+ */
+export function afterCoachObservation(memory, judged, spokenCue) {
+  const status = judged?.status;
+  if (status === 'person_not_visible' || status === 'insufficient_visibility') {
+    return memory;
+  }
+  if (status === 'matched' || judged?.ready === true) {
+    return emptyCoachMemory();
+  }
+  if (spokenCue && judged?.focusJoint) {
+    const spokenJoints = new Set(memory.spokenJoints);
+    // After covering several regions, allow revisiting so a half-fixed wrist can be refined.
+    if (spokenJoints.size >= 5) spokenJoints.clear();
+    spokenJoints.add(judged.focusJoint);
+    return {
+      lastFocusJoint: judged.focusJoint,
+      lastCue: spokenCue,
+      spokenJoints,
+    };
+  }
+  return memory;
 }
 
 /**

@@ -3,7 +3,17 @@ import { AutoSubscribe, cli, defineAgent, llm, ServerOptions, voice } from '@liv
 import * as xai from '@livekit/agents-plugin-xai';
 import { LocalVideoTrack, TrackSource, VideoBufferType, VideoFrame, VideoSource } from '@livekit/rtc-node';
 import { encodeFramePng, saveFrameCapture, watchCallerCamera } from './caller_camera.mjs';
-import { coachSpeech, nextCoachStep, noSpeech, photoAckSpeech, shouldSpeakPoseCue, spokenCorrection } from './coach_flow.mjs';
+import {
+  afterCoachObservation,
+  coachSpeech,
+  emptyCoachMemory,
+  excludeJointsForCompare,
+  nextCoachStep,
+  noSpeech,
+  photoAckSpeech,
+  shouldSpeakPoseCue,
+  spokenCorrection,
+} from './coach_flow.mjs';
 import { saveDebugSkeleton } from './debug_skeleton.mjs';
 import { drawFace, FPS, HEIGHT, WIDTH } from './face.mjs';
 import { cropFacetimeFrame, frameToAgentRgba } from './frame_display.mjs';
@@ -28,13 +38,16 @@ Always speak English only. Never switch languages.
 Left and right always mean the caller's own anatomical sides. Never substitute the side where a limb appears on the screen.
 You run this call. The caller is matching their body to the reference pose. Do not wait for them to ask for help, choose a correction, or decide that they are lined up.
 Each live frame is compared to the reference skeleton. The pipeline is coach, then match, then countdown, then snap.
-When you get a pose cue, say "Okay" then give only that one specific body correction in one short sentence, then stop. Include the direction and relative target from the cue. Never add a correction that was not in the cue. Never say you are looking at, checking, reviewing, or going back to an image, photo, snapshot, or camera frame.
+Pose corrections are spoken by the tools already. Never invent body corrections, never contradict a prior cue, and never tell them to put a hand down or up unless that exact line came from the tool.
+When a tool returns an instruction to produce no audio, produce no audio on that turn.
+When you get a pose cue from a tool message, say "Okay" then give only that one specific body correction in one short sentence, then stop. Include the direction and relative target from the cue. Never add a correction that was not in the cue. Never say you are looking at, checking, reviewing, or going back to an image, photo, snapshot, or camera frame.
 When the live pose matches, the countdown and photo start on their own. Do not speak during that countdown. Do not tell them to say cheese first. Do not ask if they want the photo.
 Only speak one detailed correction at a time. It may name the focus joint and a nearby target joint to make the placement clear. If there is no new joint cue, produce no audio.
 If they say cheese anyway, call take_photo immediately with no spoken preamble before the tool.
 After a real photo, acknowledge in one short sentence that you took it. If they want another, coach toward the reference pose again.
-If they ask for guidance, call guide_pose and say "Okay" then only that joint cue. If the tool says the person or pose is not visible, give its brief step-into-frame instruction instead of inventing a joint correction.
+If they ask for guidance, call guide_pose. The tool speaks the cue; do not invent a joint correction. If the tool says the person or pose is not visible, give its brief step-into-frame instruction instead of inventing a joint correction.
 If they ask for a score, call match_reference_pose when available and say only its feedback.
+Never invent a pose correction.
 Never mention files, messaging, or skeletons.
 Be clear that you are an AI.`;
 const greeting = 'Greet in one short English sentence: say you will coach their body into the reference pose, and when it matches you will count down and take the photo.';
@@ -52,7 +65,8 @@ export default defineAgent({
 
     const source = new VideoSource(WIDTH, HEIGHT);
     const track = LocalVideoTrack.createVideoTrack('agent-video', source);
-    let tick = 0, speaking = false, busy = false, looking = false, lastCue = '', lastFocusJoint = null, announcedWait = false, autoSnapArmed = true;
+    let tick = 0, speaking = false, busy = false, looking = false, announcedWait = false, autoSnapArmed = true;
+    let coachMemory = emptyCoachMemory();
     let snapUntil = 0, replayUntil = 0, countdownDigit = 0, lookTimer;
     /** @type {{ at: number, seen: boolean, ready: boolean, cue: string | null } | null} */
     let lastReady = null;
@@ -118,9 +132,13 @@ export default defineAgent({
           console.warn('[pose-matcher] no reference image in POSE_REFERENCE_IMAGE or reference-images/');
           return;
         }
+        const grokCompare = createGrokPoseCoach();
         const matcher = createPoseMatcher({
           extractPose: image => poseWorker.detect(image),
-          comparePose: createGrokPoseCoach(),
+          comparePose: args => grokCompare({
+            ...args,
+            excludeJoints: excludeJointsForCompare(coachMemory.spokenJoints),
+          }),
         });
         await matcher.setReference(loaded.dataUrl);
         poseMatcher = matcher;
@@ -273,8 +291,9 @@ export default defineAgent({
      */
     const followCoachStep = async (judged, { speak = false, repeat = false } = {}) => {
       if (judged.status === 'person_not_visible' || judged.status === 'insufficient_visibility') {
-        lastFocusJoint = null;
-        lastCue = '';
+        // Keep last cue / spoken joints — a brief visibility miss used to reset
+        // memory and re-speak the same wrist tip on the next adjust.
+        coachMemory = afterCoachObservation(coachMemory, judged, null);
         const instruction = judged.status === 'person_not_visible'
           ? 'Please step into frame so I can see your full body.'
           : 'Please step into frame with your arms and legs visible.';
@@ -296,8 +315,7 @@ export default defineAgent({
         const snap = await countdownAndSave({ holdStill: true });
         if (snap.ok) {
           autoSnapArmed = false;
-          lastCue = '';
-          lastFocusJoint = null;
+          coachMemory = afterCoachObservation(coachMemory, { status: 'matched', ready: true }, null);
           if (speak) session.generateReply({ instructions: photoAckSpeech() });
         }
         return snap;
@@ -305,15 +323,16 @@ export default defineAgent({
 
       autoSnapArmed = step.autoSnapArmed;
       if (step.action !== 'coach' || !step.say) return { ok: true, message: noSpeech };
-      if (!shouldSpeakPoseCue(judged, lastFocusJoint)) return { ok: true, message: noSpeech };
+      if (!shouldSpeakPoseCue(judged, coachMemory.lastFocusJoint, coachMemory.spokenJoints)) {
+        return { ok: true, message: noSpeech };
+      }
       // Coalesced silent-look + guide_pose both get the same result; only one TTS.
-      if (speak && step.say === lastCue) return { ok: true, message: noSpeech };
-      if (!speak && !repeat && step.say === lastCue) return { ok: true, message: noSpeech };
+      if (speak && step.say === coachMemory.lastCue) return { ok: true, message: noSpeech };
+      if (!speak && !repeat && step.say === coachMemory.lastCue) return { ok: true, message: noSpeech };
       // Do not gate on `speaking` — the "one second" filler leaves speaking=true
       // and would swallow the real cue. busy/countdown still block.
       if (speak && (busy || countdownDigit)) return { ok: true, message: noSpeech };
-      lastCue = step.say;
-      lastFocusJoint = judged.focusJoint ?? null;
+      coachMemory = afterCoachObservation(coachMemory, judged, step.say);
       const message = coachSpeech(step.say);
       if (speak) {
         // Speak via TTS (not generateReply): RealtimeModel server VAD ignores
