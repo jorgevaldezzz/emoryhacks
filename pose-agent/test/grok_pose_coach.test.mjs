@@ -39,10 +39,37 @@ describe('Grok pose coaching', () => {
     assert.match(content.find(item => item.type === 'input_text').text, /own anatomical sides/i);
     assert.match(content.find(item => item.type === 'input_text').text, /never the side of the screen/i);
     assert.match(content.find(item => item.type === 'input_text').text, /overlapping visible joints/i);
+    assert.match(content.find(item => item.type === 'input_text').text, /stance|feet|torso|hips/i);
+    assert.doesNotMatch(content.find(item => item.type === 'input_text').text, /left wrist beside their head/);
     assert.equal(request.body.text.format.type, 'json_schema');
     assert.equal(result.status, 'adjust');
     assert.equal(result.focusJoint, 'left_wrist');
     assert.equal(result.feedback, 'Move your left wrist beside your left temple.');
+  });
+
+  it('asks Grok to skip already-spoken joints so coaching advances past the wrist', async () => {
+    let request;
+    const coach = createGrokPoseCoach({
+      apiKey: 'test-key', model: 'grok-4.7-test',
+      fetchImpl: async (url, options) => {
+        request = { url, ...options, body: JSON.parse(options.body) };
+        return response(output({
+          status: 'adjust',
+          focus_joint: 'left_ankle',
+          cue: 'Step your left foot farther out to widen your stance.',
+        }));
+      },
+    });
+    const result = await coach({
+      reference: pose(),
+      current: pose(0.1),
+      excludeJoints: ['right_wrist', 'right_elbow'],
+    });
+    const text = request.body.input[0].content.find(item => item.type === 'input_text').text;
+    assert.match(text, /right_wrist/);
+    assert.match(text, /right_elbow/);
+    assert.match(text, /already coached|do not choose|exclude|skip/i);
+    assert.equal(result.focusJoint, 'left_ankle');
   });
 
   it('accepts a matched result and never invents a cue', () => {
