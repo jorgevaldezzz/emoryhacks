@@ -699,27 +699,6 @@ img {
   transform: translateX(-50%) translateY(0);
 }
 
-.flow-hint {
-  position: fixed;
-  right: 18px;
-  bottom: 18px;
-  z-index: 30;
-  width: min(280px, calc(100vw - 36px));
-  padding: 14px 16px;
-  border-radius: 16px;
-  background: rgba(26, 18, 20, 0.92);
-  color: #fff;
-  font-size: 0.84rem;
-  box-shadow: var(--shadow);
-  pointer-events: none;
-}
-
-.flow-hint strong {
-  display: block;
-  margin-bottom: 4px;
-  font-family: "Bricolage Grotesque", sans-serif;
-}
-
 .hidden {
   display: none !important;
 }

@@ -49,7 +49,6 @@ let state = loadState();
 
 const pages = [...document.querySelectorAll(".page")];
 const toastEl = document.getElementById("toast");
-const flowHint = document.getElementById("flowHint");
 
 function toast(message) {
   toastEl.textContent = message;
@@ -306,15 +305,6 @@ function showPage(path, params = {}) {
   if (target === "upload") renderUpload();
   if (target === "location") renderLocation();
   if (target === "gallery") renderGallery();
-
-  const hints = {
-    home: "Home is the entry. Use Sign up or Login to continue.",
-    login: "After auth you land on Pose Direct & Upload.",
-    upload: "Upload a photo, then choose locations or skip to gallery.",
-    location: "Review matches / FaceTime, then continue to My Gallery.",
-    gallery: "User-linked gallery. Start another upload anytime.",
-  };
-  flowHint.innerHTML = `<strong>${target}</strong>${hints[target] || ""}`;
 }
 
 function route() {
