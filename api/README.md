@@ -48,11 +48,15 @@ docker run --rm -p 8787:8787 \
 
 ## Wire the website (Vercel)
 
-In the browser (or edit `website/config.js`):
+Deploy the API to a public Node host, then set its public origin in
+`website/config.js` as `IMPHOTOGENIC_API_URL` (or set it in the browser):
 
 ```js
 localStorage.setItem("IMPHOTOGENIC_API_URL", "https://your-api-host.example.com");
 ```
+
+The website uses the local API address only when opened on `localhost` or
+`127.0.0.1`; hosted pages do not send account requests to a visitor's computer.
 
 ## Wire the Chert agent
 
