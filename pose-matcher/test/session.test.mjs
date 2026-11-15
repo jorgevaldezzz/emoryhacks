@@ -40,4 +40,29 @@ describe('createPoseMatcher', () => {
     assert.equal(visible.focusJoint, 'left_wrist');
     assert.equal(comparisons, 1);
   });
+
+  it('lets overlapping checks await the same in-flight comparison instead of check_in_progress', async () => {
+    let release;
+    const gate = new Promise(resolve => { release = resolve; });
+    let comparisons = 0;
+    const matcher = createPoseMatcher({
+      extractPose: async image => image === 'reference' ? clearPose : clearPose,
+      comparePose: async () => {
+        comparisons += 1;
+        await gate;
+        return { ok: true, status: 'adjust', focusJoint: 'right_elbow', feedback: 'Raise your right elbow out to the side.' };
+      },
+    });
+    await matcher.setReference('reference');
+    const first = matcher.check('live-a');
+    const second = matcher.check('live-b');
+    release();
+    const [a, b] = await Promise.all([first, second]);
+    assert.equal(comparisons, 1);
+    assert.equal(a.status, 'adjust');
+    assert.equal(b.status, 'adjust');
+    assert.equal(a.focusJoint, 'right_elbow');
+    assert.equal(b.focusJoint, 'right_elbow');
+    assert.notEqual(a.status, 'check_in_progress');
+  });
 });

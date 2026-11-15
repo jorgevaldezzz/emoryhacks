@@ -202,11 +202,22 @@
           </section>
 
           <aside class="stack">
-            <div class="callout">
+            <div class="callout join-callout">
               <h3>Atelier Remote Link</h3>
-              <p>Direct live FaceTime shoot with a creative director for pose guidance.</p>
+              <p>Connect for live pose guidance. Scan the QR code, or text the join code to the studio number.</p>
+              <img
+                class="join-qr"
+                src="./assets/join-qr.png"
+                alt="QR code to join the live pose session"
+                width="180"
+                height="180"
+              />
+              <p class="join-scan">Scan with your phone camera to join</p>
+              <div class="join-or">or</div>
+              <p class="join-text">
+                Text <strong>join 9CJQ7V</strong> to
+              </p>
               <div class="phone">+1 (646) 391-6614</div>
-              <button class="btn btn-primary" id="facetimeBtn" type="button">Launch FaceTime Call</button>
               <button class="btn btn-secondary" id="copyNumberBtn" type="button" style="background: transparent; color: #fff; border-color: rgba(255,255,255,0.25)">
                 Copy Studio Number
               </button>
@@ -252,12 +263,9 @@
       </div>
     </div>
 
-    <div class="flow-hint" id="flowHint">
-      <strong>Prototype flow</strong>
-      Home → Sign up / Login → Upload → (optional) Locations → Gallery
-    </div>
     <div class="toast" id="toast" role="status"></div>
 
-    <script src="./app.js?v=6"></script>
+    <script src="./config.js?v=1"></script>
+    <script src="./app.js?v=8"></script>
   </body>
 </html>

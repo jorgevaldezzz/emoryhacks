@@ -13,7 +13,20 @@ test('classify maps the documented tags', () => {
   assert.equal(classify({ natural: 'beach' }), 'beach');
   assert.equal(classify({ waterway: 'waterfall' }), 'waterfall');
   assert.equal(classify({ man_made: 'pier' }), 'pier');
+  assert.equal(classify({ natural: 'peak' }), 'peak');
+  assert.equal(classify({ natural: 'cliff' }), 'cliff');
+  assert.equal(classify({ man_made: 'bridge' }), 'bridge');
   assert.equal(classify({ amenity: 'cafe' }), undefined);
+  // A viewpoint on a summit is still a viewpoint: it carries the view direction.
+  assert.equal(classify({ natural: 'peak', tourism: 'viewpoint' }), 'viewpoint');
+});
+
+test('an unnamed summit is still a summit; an unnamed bridge is not a spot', () => {
+  const peak = normalizeElement({ type: 'node', id: 11, lat: 44.27, lon: -71.3, tags: { natural: 'peak', ele: '1917' } });
+  assert.equal(peak.category, 'peak');
+  assert.match(peak.name, /summit/i);
+
+  assert.equal(normalizeElement({ type: 'way', id: 12, center: { lat: 33.75, lon: -84.36 }, tags: { man_made: 'bridge' } }), null);
 });
 
 test('normalizeElement builds a document from a node', () => {

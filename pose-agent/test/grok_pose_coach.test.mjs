@@ -30,6 +30,7 @@ describe('Grok pose coaching', () => {
     assert.equal(request.url, GROK_POSE_ENDPOINT);
     assert.equal(request.body.store, false);
     assert.equal(request.body.model, 'grok-4.7-test');
+    assert.deepEqual(request.body.reasoning, { effort: 'low' });
     const content = request.body.input[0].content;
     const images = content.filter(item => item.type === 'input_image');
     assert.equal(images.length, 2);
@@ -37,6 +38,7 @@ describe('Grok pose coaching', () => {
     assert.match(content.find(item => item.type === 'input_text').text, /skeleton overlays/i);
     assert.match(content.find(item => item.type === 'input_text').text, /own anatomical sides/i);
     assert.match(content.find(item => item.type === 'input_text').text, /never the side of the screen/i);
+    assert.match(content.find(item => item.type === 'input_text').text, /overlapping visible joints/i);
     assert.equal(request.body.text.format.type, 'json_schema');
     assert.equal(result.status, 'adjust');
     assert.equal(result.focusJoint, 'left_wrist');

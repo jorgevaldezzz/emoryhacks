@@ -7,6 +7,7 @@ import { coachSpeech, nextCoachStep, noSpeech, photoAckSpeech, shouldSpeakPoseCu
 import { saveDebugSkeleton } from './debug_skeleton.mjs';
 import { drawFace, FPS, HEIGHT, WIDTH } from './face.mjs';
 import { cropFacetimeFrame, frameToAgentRgba } from './frame_display.mjs';
+import { uploadCaptureToGallery } from './gallery_upload.mjs';
 import { greetOnBridgeReady } from './greet.mjs';
 import { createGrokPoseCoach } from './grok_pose_coach.mjs';
 import { loadReferenceImage } from './reference_pose.mjs';
@@ -81,7 +82,20 @@ export default defineAgent({
     };
 
     const session = new voice.AgentSession({
-      llm: new xai.realtime.RealtimeModel({ voice: 'leo' }),
+      // Realtime voice for conversation; separate TTS so session.say() can play
+      // coach cues without relying on generateReply (server VAD cancels those).
+      llm: new xai.realtime.RealtimeModel({
+        voice: 'leo',
+        turnDetection: {
+          type: 'server_vad',
+          threshold: 0.5,
+          prefix_padding_ms: 300,
+          silence_duration_ms: 200,
+          create_response: true,
+          interrupt_response: false,
+        },
+      }),
+      tts: new xai.TTS({ voice: 'leo' }),
     });
     session.on(voice.AgentSessionEventTypes.AgentStateChanged, event => { speaking = event.newState === 'speaking'; });
 
@@ -144,7 +158,7 @@ export default defineAgent({
         if (result.status !== 'check_in_progress') {
           lastReady = { at: Date.now(), seen, ready, cue: result.feedback ?? null };
         }
-        console.log(`[pose-matcher] coach status=${result.status}${result.score == null ? '' : ` score=${result.score}`}`);
+        console.log(`[pose-matcher] coach status=${result.status}${result.coverage == null ? '' : ` coverage=${result.coverage}`}${result.score == null ? '' : ` score=${result.score}`}`);
         return {
           status: result.status,
           feedback: result.feedback ?? null,
@@ -169,6 +183,26 @@ export default defineAgent({
       showCapture(cropped);
       const saved = await saveFrameCapture(cropped);
       console.log(`[caller-camera] snap saved=${saved.savedPath ?? 'no'} ok=${saved.ok}`);
+
+      if (saved.ok && saved.bytes) {
+        try {
+          const gallery = await uploadCaptureToGallery({
+            bytes: saved.bytes,
+            mimeType: 'image/png',
+            name: saved.savedPath ? saved.savedPath.split(/[\\/]/).pop() : undefined,
+            note: 'Captured by Chert pose agent',
+          });
+          if (gallery.skipped) {
+            console.log(`[gallery] ${gallery.message}`);
+          } else if (gallery.ok) {
+            console.log(`[gallery] uploaded item=${gallery.item?.id ?? 'ok'}`);
+          } else {
+            console.warn(`[gallery] ${gallery.message}`);
+          }
+        } catch (error) {
+          console.warn('[gallery] upload failed', error instanceof Error ? error.message : error);
+        }
+      }
 
       return {
         ok: saved.ok,
@@ -244,7 +278,14 @@ export default defineAgent({
         const instruction = judged.status === 'person_not_visible'
           ? 'Please step into frame so I can see your full body.'
           : 'Please step into frame with your arms and legs visible.';
-        if (speak) session.generateReply({ instructions: `Speak English only. Say exactly this framing instruction, then stop: ${instruction}` });
+        if (speak) {
+          try {
+            session.say(instruction, { allowInterruptions: false });
+          } catch (error) {
+            console.warn('[caller-camera] framing say failed', error instanceof Error ? error.message : error);
+          }
+          return { ok: true, message: noSpeech };
+        }
         return { ok: true, message: instruction };
       }
       // A spoken request may take another photo even while the auto loop is waiting out the last match.
@@ -265,14 +306,25 @@ export default defineAgent({
       autoSnapArmed = step.autoSnapArmed;
       if (step.action !== 'coach' || !step.say) return { ok: true, message: noSpeech };
       if (!shouldSpeakPoseCue(judged, lastFocusJoint)) return { ok: true, message: noSpeech };
-      if (!repeat && step.say === lastCue) return { ok: true, message: noSpeech };
-      if (speak && (speaking || busy || countdownDigit)) return { ok: true, message: noSpeech };
+      // Coalesced silent-look + guide_pose both get the same result; only one TTS.
+      if (speak && step.say === lastCue) return { ok: true, message: noSpeech };
+      if (!speak && !repeat && step.say === lastCue) return { ok: true, message: noSpeech };
+      // Do not gate on `speaking` — the "one second" filler leaves speaking=true
+      // and would swallow the real cue. busy/countdown still block.
+      if (speak && (busy || countdownDigit)) return { ok: true, message: noSpeech };
       lastCue = step.say;
       lastFocusJoint = judged.focusJoint ?? null;
       const message = coachSpeech(step.say);
       if (speak) {
+        // Speak via TTS (not generateReply): RealtimeModel server VAD ignores
+        // allowInterruptions:false and cancels cue turns when the caller talks.
         console.log(`[caller-camera] coach cue: ${step.say}`);
-        session.generateReply({ instructions: message });
+        try {
+          session.say(`Okay. ${step.say}`, { allowInterruptions: false });
+        } catch (error) {
+          console.warn('[caller-camera] coach say failed', error instanceof Error ? error.message : error);
+        }
+        return { ok: true, message: noSpeech };
       }
       return { ok: true, message };
     };
@@ -326,6 +378,12 @@ export default defineAgent({
               }
               const cropped = latestCropped();
               if (!cropped) return { ok: false, message: 'No camera frame yet. Ask them to keep FaceTime Video on.' };
+              // Grok can take ~10–40s; fill the gap so FaceTime is not dead silent.
+              try {
+                session.say('Okay, one second.', { allowInterruptions: false });
+              } catch (error) {
+                console.warn('[caller-camera] guide filler failed', error instanceof Error ? error.message : error);
+              }
               let judged;
               busy = true;
               try {
@@ -336,7 +394,9 @@ export default defineAgent({
               } finally {
                 busy = false;
               }
-              return followCoachStep(judged, { speak: false, repeat: true });
+              // Speak the cue via TTS here — returning coachSpeech for the
+              // realtime model often became silence after check_in_progress races.
+              return followCoachStep(judged, { speak: true, repeat: true });
             },
           }),
           take_photo: llm.tool({
@@ -366,7 +426,7 @@ export default defineAgent({
                 console.warn('[mediapipe] reference comparison failed', error instanceof Error ? error.message : error);
                 return { ok: false, message: 'Could not compare with the reference pose. Ask them to try again.' };
               } finally { busy = false; }
-              return followCoachStep(judged, { speak: false, repeat: true });
+              return followCoachStep(judged, { speak: true, repeat: true });
             },
           }),
         },

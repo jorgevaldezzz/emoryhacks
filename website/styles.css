@@ -585,6 +585,41 @@ img {
   font-weight: 800;
 }
 
+.join-callout {
+  justify-items: center;
+  text-align: center;
+}
+
+.join-qr {
+  width: 180px;
+  height: 180px;
+  object-fit: contain;
+  border-radius: 12px;
+  background: #fff;
+  padding: 10px;
+}
+
+.join-scan,
+.join-text {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 0.95rem;
+}
+
+.join-text strong {
+  color: #fff;
+  font-family: "Bricolage Grotesque", sans-serif;
+  letter-spacing: 0.02em;
+}
+
+.join-or {
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.45);
+}
+
 .gallery-head {
   display: flex;
   justify-content: space-between;
@@ -697,27 +732,6 @@ img {
 .toast.show {
   opacity: 1;
   transform: translateX(-50%) translateY(0);
-}
-
-.flow-hint {
-  position: fixed;
-  right: 18px;
-  bottom: 18px;
-  z-index: 30;
-  width: min(280px, calc(100vw - 36px));
-  padding: 14px 16px;
-  border-radius: 16px;
-  background: rgba(26, 18, 20, 0.92);
-  color: #fff;
-  font-size: 0.84rem;
-  box-shadow: var(--shadow);
-  pointer-events: none;
-}
-
-.flow-hint strong {
-  display: block;
-  margin-bottom: 4px;
-  font-family: "Bricolage Grotesque", sans-serif;
 }
 
 .hidden {

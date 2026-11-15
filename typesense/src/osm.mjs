@@ -35,9 +35,22 @@ export const SPOT_RULES = [
     selectors: ['nwr["tourism"="artwork"]["artwork_type"~"^(sculpture|statue|installation|mosaic|relief)$"]'],
   },
   {
+    category: 'peak',
+    quality: 70,
+    // The literal "top of a mountain". `ele` is usually on it too, which is
+    // what makes a summit worth the walk.
+    selectors: ['nwr["natural"="peak"]'],
+  },
+  {
     category: 'waterfall',
     quality: 70,
     selectors: ['nwr["waterway"="waterfall"]'],
+  },
+  {
+    category: 'cliff',
+    quality: 60,
+    // Mapped as a way along the edge; `out center` gives us a point on it.
+    selectors: ['nwr["natural"="cliff"]'],
   },
   {
     category: 'beach',
@@ -48,6 +61,13 @@ export const SPOT_RULES = [
     category: 'pier',
     quality: 60,
     selectors: ['nwr["man_made"="pier"]'],
+  },
+  {
+    category: 'bridge',
+    quality: 55,
+    // man_made=bridge is the structure itself, not every road that crosses
+    // something — highway bridges are tagged on the way and stay out of this.
+    selectors: ['nwr["man_made"="bridge"]'],
   },
   {
     category: 'garden',
@@ -71,11 +91,12 @@ export const CATEGORIES = SPOT_RULES.map(rule => rule.category);
 
 // Categories where an unnamed element is still a fine photo spot. An unnamed
 // mural is normal; an unnamed "attraction" is almost always noise.
-const KEEP_UNNAMED = new Set(['mural', 'artwork', 'viewpoint', 'waterfall']);
+const KEEP_UNNAMED = new Set(['mural', 'artwork', 'viewpoint', 'waterfall', 'peak', 'cliff']);
 
 const CATEGORY_LABEL = {
   viewpoint: 'Viewpoint', mural: 'Mural', artwork: 'Public artwork',
-  waterfall: 'Waterfall', beach: 'Beach', pier: 'Pier',
+  peak: 'Summit', waterfall: 'Waterfall', cliff: 'Clifftop',
+  beach: 'Beach', pier: 'Pier', bridge: 'Bridge',
   garden: 'Garden', park: 'Park', attraction: 'Attraction',
 };
 
@@ -126,9 +147,12 @@ export function classify(tags = {}) {
     if (/^(mural|graffiti|street_art)$/.test(artworkType ?? '')) return 'mural';
     return 'artwork';
   }
+  if (tags.natural === 'peak') return 'peak';
   if (tags.waterway === 'waterfall') return 'waterfall';
+  if (tags.natural === 'cliff') return 'cliff';
   if (tags.natural === 'beach') return 'beach';
   if (tags.man_made === 'pier') return 'pier';
+  if (tags.man_made === 'bridge') return 'bridge';
   if (tags.leisure === 'garden') return 'garden';
   if (tags.leisure === 'park') return 'park';
   if (tags.tourism === 'attraction') return 'attraction';
