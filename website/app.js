@@ -52,6 +52,41 @@ let recommendationRequestId = 0;
 const pages = [...document.querySelectorAll(".page")];
 const toastEl = document.getElementById("toast");
 
+function animateHeroHeadline() {
+  const question = document.getElementById("heroQuestion");
+  const text = document.getElementById("heroTypingText");
+  const promise = document.getElementById("heroPromise");
+  const placeholder = question?.querySelector(".hero-question-placeholder");
+  if (!question || !text || !promise || !placeholder) return;
+
+  if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+
+  const characters = Array.from(placeholder.textContent.trim());
+  text.textContent = "";
+  question.classList.add("is-typing");
+  promise.classList.add("is-pending");
+
+  let index = 0;
+  function typeNextCharacter() {
+    text.textContent += characters[index];
+    index += 1;
+    if (index < characters.length) {
+      window.setTimeout(typeNextCharacter, characters[index - 1] === " " ? 24 : 42);
+      return;
+    }
+
+    question.classList.add("typing-complete");
+    window.setTimeout(() => {
+      promise.classList.remove("is-pending");
+      promise.classList.add("is-visible");
+    }, 2000);
+  }
+
+  typeNextCharacter();
+}
+
+animateHeroHeadline();
+
 function toast(message) {
   toastEl.textContent = message;
   toastEl.classList.add("show");

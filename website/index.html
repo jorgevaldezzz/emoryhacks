@@ -4,13 +4,12 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>IMPhotogenic — Clickable Prototype</title>
-    <link rel="stylesheet" href="./styles.css?v=2" />
+    <link rel="stylesheet" href="./styles.css?v=5" />
   </head>
   <body>
     <div class="app-shell">
       <header class="topnav">
         <a class="brand" href="#home" data-nav="home">
-          <span class="brand-mark" aria-hidden="true"></span>
           IMPhotogenic
         </a>
         <nav class="nav-links">
@@ -29,9 +28,12 @@
         <section class="hero">
           <div>
             <span class="eyebrow">Home &amp; Features</span>
-            <h1 class="display">
-              Lonely? Tired of your boyfriend taking horrid photos?
-              <em>IMPhotogenic</em> will lead you toward your dream feed.
+            <h1 class="display hero-headline" aria-label="Lonely? Tired of your boyfriend taking horrid photos? IMPhotogenic will lead you toward your dream feed.">
+              <span class="hero-question" id="heroQuestion">
+                <span class="hero-question-placeholder" aria-hidden="true">Lonely? Tired of your boyfriend taking horrid photos?</span>
+                <span class="hero-typing-layer" aria-hidden="true"><span id="heroTypingText"></span><span class="typing-cursor" id="heroTypingCursor"></span></span>
+              </span>
+              <span class="hero-promise" id="heroPromise" aria-hidden="true"><em>IMPhotogenic</em> will lead you toward your dream feed.</span>
             </h1>
             <p class="lead">
               Upload inspiration, match nearby locations, and get live pose direction —
@@ -49,7 +51,10 @@
 
         <section class="feature-grid">
           <article class="feature-card">
-            <span class="chip">Background matching</span>
+            <div class="feature-labels">
+              <span class="chip">Background matching</span>
+              <span class="chip chip-wip">WIP</span>
+            </div>
             <h3>10km Radius Background Matching</h3>
             <p>
               Find parks, cafés, alleys, and urban spots near you that echo the vibe of
@@ -248,6 +253,6 @@
     <div class="toast" id="toast" role="status"></div>
 
     <script src="./config.js?v=1"></script>
-    <script src="./app.js?v=10"></script>
+    <script src="./app.js?v=12"></script>
   </body>
 </html>

@@ -94,14 +94,6 @@ img {
   gap: 0.45rem;
 }
 
-.brand-mark {
-  width: 28px;
-  height: 28px;
-  border-radius: 9px;
-  background: linear-gradient(145deg, var(--accent), #ff7a68);
-  box-shadow: 0 8px 16px rgba(226, 61, 77, 0.28);
-}
-
 .nav-links {
   display: flex;
   align-items: center;
@@ -235,6 +227,62 @@ img {
   color: var(--accent);
 }
 
+.hero-question {
+  display: block;
+  position: relative;
+}
+
+.hero-question-placeholder {
+  display: block;
+}
+
+.hero-typing-layer {
+  display: none;
+}
+
+.hero-question.is-typing .hero-question-placeholder {
+  visibility: hidden;
+}
+
+.hero-question.is-typing .hero-typing-layer {
+  display: block;
+  position: absolute;
+  inset: 0;
+}
+
+.typing-cursor {
+  display: inline-block;
+  width: 0.075em;
+  height: 0.82em;
+  margin-left: 0.08em;
+  vertical-align: -0.04em;
+  border-radius: 2px;
+  background: currentColor;
+  animation: typing-blink 850ms steps(2, start) infinite;
+}
+
+.hero-question.typing-complete .typing-cursor {
+  visibility: hidden;
+  animation: none;
+}
+
+.hero-promise.is-pending {
+  opacity: 0;
+}
+
+.hero-promise.is-visible {
+  animation: hero-promise-fade 850ms ease both;
+}
+
+@keyframes typing-blink {
+  to { visibility: hidden; }
+}
+
+@keyframes hero-promise-fade {
+  from { opacity: 0; transform: translateY(0.18em); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 .hero p.lead {
   margin: 14px auto 0;
   max-width: 40rem;
@@ -245,6 +293,13 @@ img {
 
 .hero .btn-row {
   justify-content: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .typing-cursor,
+  .hero-promise.is-visible {
+    animation: none;
+  }
 }
 
 .feature-grid {
@@ -282,6 +337,17 @@ img {
 .feature-card p {
   margin: 0;
   color: var(--muted);
+}
+
+.feature-labels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.chip-wip {
+  background: #fff0c2;
+  color: #714d00;
 }
 
 .stat-row {
