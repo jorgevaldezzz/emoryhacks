@@ -6,6 +6,7 @@ const defaultState = () => ({
   uploadedDataUrl: null,
   uploadedName: null,
   wantLocations: true,
+  userLocation: null,
   gallery: [],
 });
 
@@ -20,7 +21,28 @@ function loadState() {
 }
 
 function saveState() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    return;
+  } catch {
+    // Large photos often exceed localStorage quota. Keep UI state in memory
+    // and persist a light snapshot so Continue is never blocked by storage.
+  }
+
+  try {
+    const light = {
+      user: state.user,
+      authMode: state.authMode,
+      wantLocations: state.wantLocations,
+      userLocation: state.userLocation,
+      uploadedName: state.uploadedName,
+      uploadedDataUrl: null,
+      gallery: state.gallery.map(({ name, note, at }) => ({ name, note, at })),
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(light));
+  } catch {
+    // Ignore persistence failures — in-memory flow must keep working.
+  }
 }
 
 let state = loadState();
@@ -83,10 +105,24 @@ function setAuthMode(mode) {
   document.getElementById("authSwitch").textContent = isSignup ? "Log in" : "Sign up";
 }
 
+function clearUpload() {
+  state.uploadedDataUrl = null;
+  state.uploadedName = null;
+  state.userLocation = null;
+  state.gallery = [];
+  saveState();
+
+  const fileInput = document.getElementById("fileInput");
+  if (fileInput) fileInput.value = "";
+
+  closeLocationModal();
+  renderUpload();
+  renderGallery();
+}
+
 function renderUpload() {
   const preview = document.getElementById("uploadPreview");
   const empty = document.getElementById("uploadEmpty");
-  const continueBtn = document.getElementById("continueUpload");
   const hasUpload = Boolean(state.uploadedDataUrl);
 
   document.getElementById("wantLocations").checked = state.wantLocations;
@@ -100,8 +136,100 @@ function renderUpload() {
     preview.classList.add("hidden");
     empty.classList.remove("hidden");
   }
+}
 
-  continueBtn.disabled = !hasUpload;
+function renderLocation() {
+  const sub = document.getElementById("locationSub");
+  if (!sub) return;
+
+  if (state.userLocation?.lat != null) {
+    const { lat, lng, label } = state.userLocation;
+    sub.textContent = label
+      ? `Matching spots near ${label} (${lat.toFixed(4)}, ${lng.toFixed(4)}).`
+      : `Matching spots near your shared location (${lat.toFixed(4)}, ${lng.toFixed(4)}).`;
+    return;
+  }
+
+  if (state.userLocation?.denied) {
+    sub.textContent =
+      "Location was not shared — showing demo recommendations. Enable location next time for nearby matches.";
+    return;
+  }
+
+  sub.textContent = "Recommended spots near you that sync with your uploaded inspiration.";
+}
+
+function openLocationModal() {
+  const modal = document.getElementById("locationModal");
+  if (!modal) return;
+  const status = document.getElementById("locationModalStatus");
+  if (status) status.textContent = "";
+  const allowBtn = document.getElementById("allowLocationBtn");
+  if (allowBtn) allowBtn.disabled = false;
+  modal.classList.remove("hidden");
+  modal.style.display = "grid";
+  modal.setAttribute("aria-hidden", "false");
+}
+
+function closeLocationModal() {
+  const modal = document.getElementById("locationModal");
+  if (!modal) return;
+  modal.classList.add("hidden");
+  modal.style.display = "none";
+  modal.setAttribute("aria-hidden", "true");
+  const status = document.getElementById("locationModalStatus");
+  if (status) status.textContent = "";
+  const allowBtn = document.getElementById("allowLocationBtn");
+  if (allowBtn) allowBtn.disabled = false;
+}
+
+function goToLocationPage() {
+  closeLocationModal();
+  location.hash = "#location";
+}
+
+function requestUserLocation() {
+  const status = document.getElementById("locationModalStatus");
+  const allowBtn = document.getElementById("allowLocationBtn");
+
+  if (!navigator.geolocation) {
+    status.textContent = "Geolocation is not supported in this browser.";
+    state.userLocation = { denied: true };
+    saveState();
+    setTimeout(goToLocationPage, 700);
+    return;
+  }
+
+  allowBtn.disabled = true;
+  status.textContent =
+    "Check the browser location prompt (often near the address bar), then Allow.";
+
+  navigator.geolocation.getCurrentPosition(
+    (position) => {
+      state.userLocation = {
+        lat: position.coords.latitude,
+        lng: position.coords.longitude,
+        accuracy: position.coords.accuracy,
+        denied: false,
+      };
+      saveState();
+      status.textContent = "Location received — opening recommendations…";
+      toast("Location shared");
+      setTimeout(goToLocationPage, 250);
+    },
+    (error) => {
+      state.userLocation = { denied: true, code: error.code };
+      saveState();
+      status.textContent =
+        error.code === error.PERMISSION_DENIED
+          ? "Permission denied — continuing with demo spots…"
+          : "Location timed out — continuing with demo spots…";
+      allowBtn.disabled = false;
+      setTimeout(goToLocationPage, 600);
+    },
+    // Network/IP location is much faster than GPS high-accuracy on desktops.
+    { enableHighAccuracy: false, timeout: 4000, maximumAge: 300000 }
+  );
 }
 
 function renderGallery() {
@@ -123,17 +251,20 @@ function renderGallery() {
   }
 
   grid.innerHTML = state.gallery
-    .map(
-      (item, index) => `
+    .map((item, index) => {
+      const thumb = item.dataUrl
+        ? `<img class="thumb" src="${item.dataUrl}" alt="${item.name || "Gallery item " + (index + 1)}" />`
+        : `<div class="thumb" role="img" aria-label="${item.name || "Gallery item"}"></div>`;
+      return `
       <article class="gallery-card">
-        <img class="thumb" src="${item.dataUrl}" alt="${item.name || "Gallery item " + (index + 1)}" />
+        ${thumb}
         <div class="meta">
           <strong>${item.name || "Inspiration upload"}</strong>
           <span>${item.note || "Saved to your gallery"}</span>
         </div>
       </article>
-    `
-    )
+    `;
+    })
     .join("");
 }
 
@@ -144,6 +275,12 @@ function showPage(path, params = {}) {
     toast("Sign up or log in first");
     target = "login";
     history.replaceState(null, "", "#login");
+  }
+
+  // Logged-in users can only reach login again by logging out.
+  if (target === "login" && state.user) {
+    target = "upload";
+    history.replaceState(null, "", "#upload");
   }
 
   if (target === "location" && state.user && !state.uploadedDataUrl) {
@@ -163,9 +300,11 @@ function showPage(path, params = {}) {
   updateAuthChrome();
 
   if (target === "login") {
+    clearUpload();
     setAuthMode(params.mode || state.authMode || "login");
   }
   if (target === "upload") renderUpload();
+  if (target === "location") renderLocation();
   if (target === "gallery") renderGallery();
 
   const hints = {
@@ -200,7 +339,14 @@ function handleAuthSubmit(event) {
     name,
     createdAt: new Date().toISOString(),
   };
+  // Fresh account/session starts with an empty gallery and upload tray.
+  state.gallery = [];
+  state.uploadedDataUrl = null;
+  state.uploadedName = null;
+  state.userLocation = null;
   saveState();
+  renderUpload();
+  renderGallery();
   toast(state.authMode === "signup" ? "Account created" : "Logged in");
   location.hash = "#upload";
 }
@@ -235,6 +381,33 @@ function addUploadToGallery(note) {
   saveState();
 }
 
+function handleContinueUpload(event) {
+  if (event) {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  const wantLocations = Boolean(document.getElementById("wantLocations")?.checked);
+  state.wantLocations = wantLocations;
+
+  if (!state.uploadedDataUrl) {
+    toast("Please upload a reference photo");
+    return;
+  }
+
+  // Open the next step first so storage/gallery side effects can't swallow the click.
+  if (wantLocations) {
+    openLocationModal();
+  } else {
+    toast("Skipped location matching");
+    location.hash = "#gallery";
+  }
+
+  addUploadToGallery(
+    wantLocations ? "Uploaded · location matching requested" : "Uploaded · locations skipped"
+  );
+}
+
 document.getElementById("authForm").addEventListener("submit", handleAuthSubmit);
 
 document.querySelectorAll(".tab").forEach((tab) => {
@@ -253,6 +426,7 @@ document.getElementById("authSwitch").addEventListener("click", () => {
 
 document.getElementById("logoutBtn").addEventListener("click", () => {
   state.user = null;
+  clearUpload();
   saveState();
   toast("Logged out");
   location.hash = "#home";
@@ -290,16 +464,20 @@ document.getElementById("wantLocations").addEventListener("change", (e) => {
   saveState();
 });
 
-document.getElementById("continueUpload").addEventListener("click", () => {
-  if (!state.uploadedDataUrl) return;
-  addUploadToGallery(
-    state.wantLocations ? "Uploaded · location matching requested" : "Uploaded · locations skipped"
-  );
-  if (state.wantLocations) {
-    location.hash = "#location";
-  } else {
-    toast("Skipped location matching");
-    location.hash = "#gallery";
+document.getElementById("continueUpload").addEventListener("click", handleContinueUpload);
+
+document.getElementById("allowLocationBtn").addEventListener("click", () => {
+  requestUserLocation();
+});
+
+document.getElementById("denyLocationBtn").addEventListener("click", (event) => {
+  event.preventDefault();
+  event.stopPropagation();
+  state.userLocation = null;
+  saveState();
+  closeLocationModal();
+  if (location.hash.replace(/^#/, "").split("?")[0] !== "upload") {
+    location.hash = "#upload";
   }
 });
 

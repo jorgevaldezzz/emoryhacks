@@ -3,11 +3,31 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, it } from 'node:test';
+import sharp from 'sharp';
 import { VideoBufferType, VideoFrame } from '@livekit/rtc-node';
 import { encodeFramePng, saveCapturePng, saveFrameCapture } from '../caller_camera.mjs';
 import { drawFace } from '../face.mjs';
 
 describe('encode and save caller frames', () => {
+  it('unmirrors an asymmetric caller frame only for inference input', async () => {
+    const original = Uint8Array.from([
+      255, 0, 0, 255, 0, 255, 0, 255,
+      0, 0, 255, 255, 255, 255, 0, 255,
+    ]);
+    const mirrored = Uint8Array.from([
+      ...original.slice(12, 16), ...original.slice(8, 12),
+      ...original.slice(4, 8), ...original.slice(0, 4),
+    ]);
+    const mirroredFrame = new VideoFrame(mirrored, 4, 1, VideoBufferType.RGBA);
+    const inferenceInput = await encodeFramePng(mirroredFrame, { mirrorHorizontally: true });
+    const storedCapture = await encodeFramePng(mirroredFrame);
+    const inferencePixels = await sharp(inferenceInput.bytes).ensureAlpha().raw().toBuffer();
+    const capturePixels = await sharp(storedCapture.bytes).ensureAlpha().raw().toBuffer();
+    assert.deepEqual(inferencePixels, Buffer.from(original));
+    assert.deepEqual(capturePixels, Buffer.from(mirrored));
+    assert.deepEqual(mirroredFrame.data, mirrored);
+  });
+
   it('writes a PNG with the frame aspect ratio', async () => {
     const frame = new VideoFrame(drawFace(3, false, false, 0), 640, 360, VideoBufferType.RGBA);
     const encoded = await encodeFramePng(frame);
