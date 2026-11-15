@@ -1,118 +1,69 @@
 /**
- * Image object store.
+ * Gallery image bytes.
  *
- * - Local (default): files under UPLOAD_DIR
- * - Cloud: S3-compatible bucket (AWS S3, Cloudflare R2, MinIO, Supabase S3)
- *   when S3_BUCKET (+ credentials) is set.
+ * Production: Vercel Blob (`BLOB_READ_WRITE_TOKEN`).
+ * Tests / local without a token: files under UPLOAD_DIR (API proxies via /uploads).
  */
 
 import fs from "node:fs";
 import path from "node:path";
-import { Readable } from "node:stream";
 import { UPLOAD_DIR } from "./db.js";
 
 /**
- * @returns {'local' | 's3'}
+ * @returns {'vercel-blob' | 'local'}
  */
 export function objectStoreMode() {
-  return process.env.S3_BUCKET?.trim() ? "s3" : "local";
-}
-
-function s3Config() {
-  const bucket = process.env.S3_BUCKET?.trim();
-  if (!bucket) return null;
-  return {
-    bucket,
-    region: process.env.S3_REGION?.trim() || "auto",
-    endpoint: process.env.S3_ENDPOINT?.trim() || undefined,
-    forcePathStyle: process.env.S3_FORCE_PATH_STYLE === "1",
-    accessKeyId: process.env.S3_ACCESS_KEY_ID?.trim(),
-    secretAccessKey: process.env.S3_SECRET_ACCESS_KEY?.trim(),
-    publicBase: process.env.S3_PUBLIC_URL?.replace(/\/$/, "") || null,
-    prefix: (process.env.S3_PREFIX || "gallery/").replace(/^\//, ""),
-  };
-}
-
-/** @type {import('@aws-sdk/client-s3').S3Client | null} */
-let s3Client = null;
-
-async function getS3() {
-  const cfg = s3Config();
-  if (!cfg) throw new Error("S3 is not configured");
-  if (!cfg.accessKeyId || !cfg.secretAccessKey) {
-    throw new Error("S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY are required for cloud image storage");
-  }
-  if (!s3Client) {
-    const { S3Client } = await import("@aws-sdk/client-s3");
-    s3Client = new S3Client({
-      region: cfg.region,
-      endpoint: cfg.endpoint,
-      forcePathStyle: cfg.forcePathStyle,
-      credentials: {
-        accessKeyId: cfg.accessKeyId,
-        secretAccessKey: cfg.secretAccessKey,
-      },
-    });
-  }
-  return { client: s3Client, cfg };
-}
-
-/**
- * @param {string} filename
- */
-export function objectKey(filename) {
-  const safe = path.basename(filename);
-  const cfg = s3Config();
-  if (!cfg) return safe;
-  return `${cfg.prefix}${safe}`;
+  return process.env.BLOB_READ_WRITE_TOKEN?.trim() ? "vercel-blob" : "local";
 }
 
 /**
  * @param {{ filename: string, buffer: Buffer, mime: string }} input
+ * @returns {Promise<{ filename: string, url: string | null, pathname: string | null }>}
  */
 export async function putImageObject(input) {
   const filename = path.basename(input.filename);
-  if (objectStoreMode() === "s3") {
-    const { client, cfg } = await getS3();
-    const { PutObjectCommand } = await import("@aws-sdk/client-s3");
-    await client.send(
-      new PutObjectCommand({
-        Bucket: cfg.bucket,
-        Key: objectKey(filename),
-        Body: input.buffer,
-        ContentType: input.mime,
-      })
-    );
-    return;
+  const pathname = `gallery/${filename}`;
+
+  if (objectStoreMode() === "vercel-blob") {
+    const { put } = await import("@vercel/blob");
+    const blob = await put(pathname, input.buffer, {
+      access: "public",
+      contentType: input.mime,
+      token: process.env.BLOB_READ_WRITE_TOKEN,
+      addRandomSuffix: false,
+      allowOverwrite: false,
+    });
+    return {
+      filename,
+      url: blob.url,
+      pathname: blob.pathname || pathname,
+    };
   }
 
   fs.mkdirSync(UPLOAD_DIR, { recursive: true });
   fs.writeFileSync(path.join(UPLOAD_DIR, filename), input.buffer);
+  return { filename, url: null, pathname: null };
 }
 
 /**
- * @param {string} filename
+ * @param {{ filename?: string | null, url?: string | null, pathname?: string | null }} item
  */
-export async function deleteImageObject(filename) {
-  const safe = path.basename(filename);
-  if (objectStoreMode() === "s3") {
+export async function deleteImageObject(item) {
+  if (objectStoreMode() === "vercel-blob") {
+    const target = item.url || item.pathname;
+    if (!target) return;
     try {
-      const { client, cfg } = await getS3();
-      const { DeleteObjectCommand } = await import("@aws-sdk/client-s3");
-      await client.send(
-        new DeleteObjectCommand({
-          Bucket: cfg.bucket,
-          Key: objectKey(safe),
-        })
-      );
+      const { del } = await import("@vercel/blob");
+      await del(target, { token: process.env.BLOB_READ_WRITE_TOKEN });
     } catch (err) {
-      console.warn("[api] S3 delete failed:", err instanceof Error ? err.message : err);
+      console.warn("[api] Vercel Blob delete failed:", err instanceof Error ? err.message : err);
     }
     return;
   }
 
+  if (!item.filename) return;
   try {
-    fs.unlinkSync(path.join(UPLOAD_DIR, safe));
+    fs.unlinkSync(path.join(UPLOAD_DIR, path.basename(item.filename)));
   } catch {
     // Missing file is fine.
   }
@@ -134,59 +85,31 @@ export function resolveUploadPath(filename) {
 }
 
 /**
- * Public or API-proxied URL for a stored image.
+ * Public URL for a gallery item.
  * @param {import('express').Request} req
- * @param {string} filename
+ * @param {{ filename: string, url?: string | null }} item
  */
-export async function imageUrlFor(req, filename) {
-  const safe = path.basename(filename);
-  if (objectStoreMode() === "s3") {
-    const cfg = s3Config();
-    if (cfg?.publicBase) {
-      return `${cfg.publicBase}/${objectKey(safe)}`;
-    }
-    // Fall back to API proxy so private buckets still work.
-  }
+export async function imageUrlFor(req, item) {
+  if (item.url) return item.url;
   const base = `${req.protocol}://${req.get("host")}`;
-  return `${base}/uploads/${encodeURIComponent(safe)}`;
+  return `${base}/uploads/${encodeURIComponent(path.basename(item.filename))}`;
 }
 
 /**
- * Stream or buffer an image for the /uploads proxy.
+ * Stream a locally stored image for the /uploads proxy.
  * @param {string} filename
- * @returns {Promise<{ stream: import('node:stream').Readable, contentType: string } | null>}
  */
 export async function openImageObject(filename) {
-  const safe = path.basename(filename);
-  if (objectStoreMode() === "s3") {
-    try {
-      const { client, cfg } = await getS3();
-      const { GetObjectCommand } = await import("@aws-sdk/client-s3");
-      const out = await client.send(
-        new GetObjectCommand({
-          Bucket: cfg.bucket,
-          Key: objectKey(safe),
-        })
-      );
-      if (!out.Body) return null;
-      const stream =
-        out.Body instanceof Readable
-          ? out.Body
-          : Readable.fromWeb(/** @type {any} */ (out.Body));
-      return {
-        stream,
-        contentType: out.ContentType || guessMime(safe),
-      };
-    } catch {
-      return null;
-    }
+  if (objectStoreMode() === "vercel-blob") {
+    // Public blob URLs are served by Vercel CDN; proxy is only for local mode.
+    return null;
   }
-
-  const full = resolveUploadPath(safe);
+  const full = resolveUploadPath(filename);
   if (!fs.existsSync(full)) return null;
+  const { createReadStream } = await import("node:fs");
   return {
-    stream: fs.createReadStream(full),
-    contentType: guessMime(safe),
+    stream: createReadStream(full),
+    contentType: guessMime(filename),
   };
 }
 

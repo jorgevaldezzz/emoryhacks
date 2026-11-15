@@ -56,10 +56,10 @@ export function assertAllowedMime(mime) {
  */
 export async function enforceGalleryCap(userId) {
   const max = galleryMaxItems();
-  let count = await countGalleryForUser(userId);
+  const count = await countGalleryForUser(userId);
   if (count < max) return { pruned: 0, max };
 
-  const overflow = count - max + 1; // make room for one new item
+  const overflow = count - max + 1;
   const oldest = await listOldestGalleryForUser(userId, overflow);
   let pruned = 0;
   for (const item of oldest) {
@@ -70,7 +70,7 @@ export async function enforceGalleryCap(userId) {
 }
 
 /**
- * Persist an image buffer and create a gallery row for the user.
+ * Persist an image (Vercel Blob or local) and attach a gallery row to the user.
  * @param {{
  *   userId: string,
  *   buffer: Buffer,
@@ -87,7 +87,6 @@ export async function saveGalleryImage(input) {
     err.status = 400;
     throw err;
   }
-  // ~8 MB soft limit for a single gallery image.
   if (input.buffer.length > 8 * 1024 * 1024) {
     const err = new Error("Image is too large (max 8MB)");
     err.status = 413;
@@ -98,7 +97,7 @@ export async function saveGalleryImage(input) {
 
   const id = randomUUID();
   const filename = `${id}${extensionForMime(input.mime)}`;
-  await putImageObject({
+  const stored = await putImageObject({
     filename,
     buffer: input.buffer,
     mime: input.mime,
@@ -109,20 +108,24 @@ export async function saveGalleryImage(input) {
     await insertGalleryItem({
       id,
       userId: input.userId,
-      filename,
+      filename: stored.filename,
+      url: stored.url,
+      pathname: stored.pathname,
       originalName: input.originalName ?? null,
       note: input.note ?? null,
       source: input.source || "upload",
       createdAt,
     });
   } catch (err) {
-    await deleteImageObject(filename);
+    await deleteImageObject(stored);
     throw err;
   }
 
   return {
     id,
-    filename,
+    filename: stored.filename,
+    url: stored.url,
+    pathname: stored.pathname,
     originalName: input.originalName ?? null,
     note: input.note ?? null,
     source: input.source || "upload",
@@ -139,9 +142,8 @@ export async function saveGalleryImage(input) {
 export async function removeGalleryImage(id, userId) {
   const item = await deleteGalleryItem(id, userId);
   if (!item) return null;
-  await deleteImageObject(item.filename);
+  await deleteImageObject(item);
   return item;
 }
 
-// Re-export for server.js upload proxy path checks (local mode).
 export { resolveUploadPath } from "./object-store.js";

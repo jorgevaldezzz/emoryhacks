@@ -47,7 +47,7 @@ export async function createApp() {
   app.use("/api/auth", authRoutes);
   app.use("/api/gallery", galleryRoutes);
 
-  // Image proxy (local disk or private S3/R2 bucket).
+  // Local-disk image proxy (used only when BLOB_READ_WRITE_TOKEN is unset).
   app.get("/uploads/:filename", async (req, res, next) => {
     try {
       const opened = await openImageObject(req.params.filename);
@@ -77,13 +77,17 @@ if (isMain()) {
     console.error("[api] Set JWT_SECRET (min 16 characters) before starting.");
     process.exit(1);
   }
+  if (!process.env.MONGODB_URI?.trim()) {
+    console.error("[api] Set MONGODB_URI to your MongoDB Atlas connection string.");
+    process.exit(1);
+  }
 
   const app = await createApp();
   const server = app.listen(PORT, () => {
     console.log(`[api] listening on http://0.0.0.0:${PORT}`);
     console.log(`[api] database=${databaseMode()} storage=${objectStoreMode()}`);
     if (objectStoreMode() === "local") {
-      console.log(`[api] uploads → ${path.resolve(UPLOAD_DIR)}`);
+      console.log(`[api] uploads → ${path.resolve(UPLOAD_DIR)} (set BLOB_READ_WRITE_TOKEN for Vercel Blob)`);
     }
   });
 

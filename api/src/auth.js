@@ -1,7 +1,12 @@
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { randomUUID } from "node:crypto";
-import { findUserByEmail, findUserById, insertUser } from "./db.js";
+import {
+  findUserByEmail,
+  findUserById,
+  findUserByUsername,
+  insertUser,
+} from "./db.js";
 
 const BCRYPT_ROUNDS = 12;
 
@@ -62,14 +67,26 @@ export async function signup({ email, password, name, username }) {
     err.status = 400;
     throw err;
   }
+
+  const displayName =
+    String(username || name || "").trim().toLowerCase() || normalized.split("@")[0];
+  if (displayName.length < 2) {
+    const err = new Error("Username must be at least 2 characters");
+    err.status = 400;
+    throw err;
+  }
+
   if (await findUserByEmail(normalized)) {
     const err = new Error("An account with that email already exists");
     err.status = 409;
     throw err;
   }
+  if (await findUserByUsername(displayName)) {
+    const err = new Error("That username is already taken");
+    err.status = 409;
+    throw err;
+  }
 
-  const displayName =
-    String(username || name || "").trim() || normalized.split("@")[0];
   const passwordHash = await hashPassword(String(password));
   const user = {
     id: randomUUID(),
@@ -78,7 +95,16 @@ export async function signup({ email, password, name, username }) {
     passwordHash,
     createdAt: new Date().toISOString(),
   };
-  await insertUser(user);
+  try {
+    await insertUser(user);
+  } catch (err) {
+    if (err && (err.code === 11000 || String(err.message || "").includes("duplicate"))) {
+      const conflict = new Error("An account with that email or username already exists");
+      conflict.status = 409;
+      throw conflict;
+    }
+    throw err;
+  }
   return publicUser(user);
 }
 
@@ -115,11 +141,12 @@ export async function getPublicUser(userId) {
  */
 export function publicUser(row) {
   const createdAt = row.createdAt || row.created_at;
+  const username = row.username || row.name;
   return {
     id: row.id,
     email: row.email,
-    name: row.name,
-    username: row.name,
+    name: username,
+    username,
     createdAt:
       createdAt instanceof Date ? createdAt.toISOString() : createdAt,
   };

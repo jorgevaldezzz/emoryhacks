@@ -19,12 +19,12 @@ const router = Router();
 
 /**
  * @param {import('express').Request} req
- * @param {{ id: string, filename: string, originalName?: string | null, note?: string | null, source: string, createdAt: string, pruned?: number, galleryMaxItems?: number }} item
+ * @param {{ id: string, filename: string, url?: string | null, originalName?: string | null, note?: string | null, source: string, createdAt: string, pruned?: number, galleryMaxItems?: number }} item
  */
 async function withUrl(req, item) {
   return {
     ...item,
-    url: await imageUrlFor(req, item.filename),
+    url: await imageUrlFor(req, item),
   };
 }
 
