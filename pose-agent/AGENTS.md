@@ -77,6 +77,7 @@ skeleton, speaks the difference, then counts down and snaps on a match.
 `guide_pose` and `match_reference_pose` use the same comparison. Replace this
 with a caller-upload flow later: accept a
 reference image through the Chert experience, validate and store it only for
-that call/session, then run `setReference()` on the pose matcher and pass the
-same image into vision coaching. Do not hard-code a developer-specific path or
-commit uploaded images or credentials.
+that call/session, then run `setReference()` on the pose matcher. MediaPipe
+processes the reference locally; only landmarks and correction text are used by
+the voice agent. Do not hard-code a developer-specific path or commit uploaded
+images or credentials.

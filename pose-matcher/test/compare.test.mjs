@@ -51,4 +51,22 @@ describe('comparePoses', () => {
     assert.doesNotMatch(result.feedback, /differs from the reference/);
     assert.doesNotMatch(result.feedback, /ask me to check/i);
   });
+
+  it('asks the caller to step into frame when no pose was detected', () => {
+    const result = comparePoses(pose(), { personVisible: false, landmarks: {} });
+    assert.equal(result.status, 'person_not_visible');
+    assert.match(result.feedback, /step into the camera frame/i);
+  });
+
+  it('rejects a pose with too few confident limb chains', () => {
+    const lowConfidence = pose({
+      left_elbow: point(0.25, 0.45, 0.1),
+      right_elbow: point(0.75, 0.45, 0.1),
+      left_knee: point(0.4, 0.72, 0.1),
+      right_knee: point(0.6, 0.72, 0.1),
+    });
+    const result = comparePoses(pose(), lowConfidence);
+    assert.equal(result.status, 'insufficient_visibility');
+    assert.match(result.feedback, /step into frame/i);
+  });
 });

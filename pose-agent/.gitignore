@@ -7,4 +7,7 @@ node_modules/
 captures/
 debug-skeletons/*
 !debug-skeletons/.gitkeep
+mediapipe/.venv/
+mediapipe/models/*.task
+mediapipe/__pycache__/
 

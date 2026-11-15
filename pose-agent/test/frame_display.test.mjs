@@ -3,7 +3,6 @@ import { describe, it } from 'node:test';
 import { VideoBufferType, VideoFrame } from '@livekit/rtc-node';
 import { containRgba, cropFacetimeFrame, cropFacetimeRgba, frameToAgentRgba, scaleRgba } from '../frame_display.mjs';
 import { drawFace } from '../face.mjs';
-import { describeSampleSkeleton, drawSampleSkeleton, SAMPLE_SKELETON } from '../skeleton.mjs';
 
 describe('scaleRgba', () => {
   it('scales a tiny buffer up', () => {
@@ -76,21 +75,7 @@ describe('cropFacetimeFrame', () => {
   });
 });
 
-describe('sample skeleton', () => {
-  it('draws joints onto a blank buffer for internal use', () => {
-    const pixels = new Uint8Array(640 * 360 * 4);
-    const before = pixels.slice();
-    drawSampleSkeleton(pixels, { width: 640, height: 360, skeleton: SAMPLE_SKELETON });
-    assert.notDeepEqual(pixels, before);
-  });
-
-  it('describes the target pose for vision compare', () => {
-    const text = describeSampleSkeleton();
-    assert.match(text, /Standing portrait/);
-    assert.match(text, /head=/);
-    assert.match(text, /leftAnkle=/);
-  });
-
+describe('agent face', () => {
   it('keeps the AI face by default and overlays countdown digits', () => {
     const idle = drawFace(0, false, false, 0);
     const three = drawFace(0, false, false, 3);
