@@ -2,8 +2,8 @@
 // The localhost default is only for running the API on the same computer.
 (function () {
   // Set these to the Chert FaceTime line details for the deployed site.
-  window.IMPHOTOGENIC_POSE_PHONE = window.IMPHOTOGENIC_POSE_PHONE || "";
-  window.IMPHOTOGENIC_POSE_JOIN_CODE = window.IMPHOTOGENIC_POSE_JOIN_CODE || "";
+  window.IMPHOTOGENIC_POSE_PHONE = window.IMPHOTOGENIC_POSE_PHONE || "+16463916614";
+  window.IMPHOTOGENIC_POSE_JOIN_CODE = window.IMPHOTOGENIC_POSE_JOIN_CODE || "join 9CJQ7V";
 
   const fromStorage = (() => {
     try {

@@ -213,12 +213,24 @@ function renderUpload() {
 function renderPoseConnection() {
   const phone = String(window.IMPHOTOGENIC_POSE_PHONE || "").trim();
   const joinCode = String(window.IMPHOTOGENIC_POSE_JOIN_CODE || "").trim();
+  const normalizedPhone = phone.replace(/[^+\d]/g, "");
+  const invite = joinCode;
+  const smsLink = `sms:${normalizedPhone}?&body=${encodeURIComponent(invite)}`;
   const qr = document.getElementById("poseQr");
   const fallback = document.getElementById("poseQrFallback");
   const phoneLink = document.getElementById("posePhoneNumber");
   document.getElementById("poseJoinCode").textContent = joinCode || "Set the join code in config.js";
   phoneLink.textContent = phone || "Set the phone number in config.js";
-  phoneLink.href = phone ? `tel:${phone.replace(/[^+\d]/g, "")}` : "#";
+  phoneLink.href = phone ? `tel:${normalizedPhone}` : "#";
+  document.getElementById("textPoseInvite").href = phone && invite ? smsLink : "#";
+  document.getElementById("copyPoseInvite").onclick = async () => {
+    try {
+      await navigator.clipboard.writeText(invite);
+      toast("Invite copied");
+    } catch {
+      toast("Could not copy invite");
+    }
+  };
   if (!phone) {
     qr.classList.add("hidden");
     fallback.textContent = "Add the Pose Direct phone number to config.js to generate its QR code.";
@@ -227,8 +239,8 @@ function renderPoseConnection() {
   }
   fallback.classList.add("hidden");
   qr.classList.remove("hidden");
-  // A phone QR opens the device's dialer with the Pose Direct line prefilled.
-  qr.src = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(`tel:${phone.replace(/[^+\d]/g, "")}`)}`;
+  // Match Chert's invite QR: scan to open a text to the line with the phrase filled in.
+  qr.src = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(smsLink)}`;
   qr.onerror = () => {
     qr.classList.add("hidden");
     fallback.textContent = "QR code could not be loaded. Use the phone number below.";

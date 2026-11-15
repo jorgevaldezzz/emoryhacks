@@ -141,7 +141,7 @@
           <aside class="panel pose-connect-panel">
             <span class="eyebrow">Connect to Pose Direct</span>
             <h2>Join your live pose session</h2>
-            <p class="sub">Scan the QR code or call the number below, then enter the join code.</p>
+            <p class="sub">Text the invite phrase below to Pose Direct, or scan the code with your phone camera.</p>
             <div class="pose-qr-wrap">
               <img id="poseQr" class="pose-qr" alt="QR code to call Pose Direct" />
               <span id="poseQrFallback" class="pose-qr-fallback hidden">QR code unavailable</span>
@@ -153,6 +153,10 @@
             <div class="pose-detail">
               <span class="pose-detail-label">Phone number</span>
               <a id="posePhoneNumber" href="#">Not configured</a>
+            </div>
+            <div class="pose-invite-actions">
+              <button class="btn btn-secondary" id="copyPoseInvite" type="button">Copy</button>
+              <a class="btn btn-primary" id="textPoseInvite" href="#">Text it</a>
             </div>
             <button class="btn btn-secondary" id="continueUpload" type="button">
               Save inspiration photo
@@ -182,7 +186,7 @@
 
     <div class="toast" id="toast" role="status"></div>
 
-    <script src="./config.js?v=1"></script>
-    <script src="./app.js?v=13"></script>
+    <script src="./config.js?v=2"></script>
+    <script src="./app.js?v=14"></script>
   </body>
 </html>
