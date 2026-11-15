@@ -137,12 +137,14 @@ describe('agent instructions', () => {
     assert.doesNotMatch(instructions, /ask if they want another/);
     assert.match(greeting, /count down and take the photo/);
     assert.doesNotMatch(greeting, /cheese/);
-    assert.doesNotMatch(instructions, /quiet|silence|Stay quiet|in frame/i);
-    assert.match(instructions, /Never invent (a )?pose correction|Never invent body corrections/i);
-    assert.match(instructions, /noSpeech|produce no audio|do not invent/i);
+    assert.doesNotMatch(instructions, /Stay quiet|in frame/i);
+    assert.match(instructions, /TOOL_SILENT/);
+    assert.match(instructions, /Never invent a pose correction/i);
     assert.match(source, /LOOK_EVERY_MS = 4_000/);
     assert.match(source, /saveDebugSkeleton/);
     assert.match(source, /excludeJoints/);
+    assert.match(source, /introDone/);
+    assert.match(source, /introduction finished|introduction timeout/);
     assert.doesNotMatch(source, /lastFocusJoint = null;\s*\n\s*lastCue = '';\s*\n\s*const instruction/);
   });
 });
