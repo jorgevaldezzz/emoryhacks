@@ -10,9 +10,12 @@ Emory Hacks Github Repo
 | `pose-agent/` | Chert FaceTime pose coach; uploads snaps into the gallery API |
 | `pose-matcher/` | Landmark comparison library used by the agent |
 
-Passwords are **bcrypt-hashed** in the API. Gallery images live on the API
-host’s disk; metadata and users live in SQLite. See [`api/README.md`](api/README.md)
-for deploy env vars and how to point the Vercel site + Chert agent at that host.
+Passwords are **bcrypt-hashed** in the API and stored in **MongoDB Atlas** with
+the username (not Typesense). Gallery image bytes go to **Vercel Blob**; each
+item’s metadata/URL is attached to the user account in MongoDB. Each account has
+a gallery cap (`GALLERY_MAX_ITEMS`, default 25) that auto-deletes the oldest
+shots. See [`api/README.md`](api/README.md) for `MONGODB_URI` +
+`BLOB_READ_WRITE_TOKEN` and how to point the Vercel site + Chert agent at the API.
 
 ## Standalone pose matcher
 

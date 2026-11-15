@@ -143,10 +143,14 @@ async function api(pathname, options = {}) {
 async function refreshGallery() {
   if (!state.token) {
     state.gallery = [];
+    state.galleryCount = 0;
+    state.galleryMaxItems = null;
     return;
   }
   try {
     const data = await api("/api/gallery");
+    state.galleryMaxItems = data.maxItems ?? null;
+    state.galleryCount = data.count ?? (data.items || []).length;
     state.gallery = (data.items || []).map((item) => ({
       id: item.id,
       url: item.url,
@@ -283,9 +287,18 @@ function escapeHtml(value) {
 function renderGallery() {
   const grid = document.getElementById("galleryGrid");
   const sub = document.getElementById("gallerySub");
-  const name = state.user?.name || state.user?.email || "you";
+  const cap = document.getElementById("galleryCap");
+  const name = state.user?.username || state.user?.name || state.user?.email || "you";
 
-  sub.textContent = `Gallery for ${name}. Inspiration uploads and Chert snaps stay with this account.`;
+  sub.textContent = `Gallery for ${name}. Inspiration uploads and Chert snaps stay with this account on the cloud API.`;
+  if (cap) {
+    if (state.galleryMaxItems) {
+      const used = state.galleryCount ?? state.gallery.length;
+      cap.textContent = `${used} / ${state.galleryMaxItems} shots used. Oldest shots are removed automatically when you hit the cap.`;
+    } else {
+      cap.textContent = "";
+    }
+  }
 
   if (!state.gallery.length) {
     grid.innerHTML = `
@@ -304,12 +317,16 @@ function renderGallery() {
       const thumb = src
         ? `<img class="thumb" src="${escapeHtml(src)}" alt="${escapeHtml(item.name || "Gallery item " + (index + 1))}" />`
         : `<div class="thumb" role="img" aria-label="${escapeHtml(item.name || "Gallery item")}"></div>`;
+      const deleteBtn = item.id
+        ? `<button class="gallery-delete" type="button" data-delete-id="${escapeHtml(item.id)}" aria-label="Delete gallery item">Delete</button>`
+        : "";
       return `
       <article class="gallery-card">
         ${thumb}
         <div class="meta">
           <strong>${escapeHtml(item.name || "Inspiration upload")}</strong>
           <span>${escapeHtml(item.note || "Saved to your gallery")}</span>
+          ${deleteBtn}
         </div>
       </article>
     `;
@@ -368,7 +385,7 @@ async function handleAuthSubmit(event) {
   const form = event.currentTarget;
   const email = form.email.value.trim();
   const password = form.password.value;
-  const name = form.name.value.trim() || email.split("@")[0];
+  const username = form.name.value.trim() || email.split("@")[0];
   const submit = document.getElementById("authSubmit");
 
   if (!email || !password) {
@@ -382,7 +399,9 @@ async function handleAuthSubmit(event) {
     const data = await api(path, {
       method: "POST",
       body: JSON.stringify(
-        state.authMode === "signup" ? { email, password, name } : { email, password }
+        state.authMode === "signup"
+          ? { email, password, username, name: username }
+          : { email, password }
       ),
     });
 
@@ -545,6 +564,23 @@ document.getElementById("skipToGallery").addEventListener("click", () => {
     addUploadToGallery("Uploaded · jumped to gallery");
   }
   location.hash = "#gallery";
+});
+
+document.getElementById("galleryGrid").addEventListener("click", async (event) => {
+  const btn = event.target.closest("[data-delete-id]");
+  if (!btn || !state.token) return;
+  const id = btn.getAttribute("data-delete-id");
+  if (!id) return;
+  btn.disabled = true;
+  try {
+    await api(`/api/gallery/${encodeURIComponent(id)}`, { method: "DELETE" });
+    toast("Removed from gallery");
+    await refreshGallery();
+    renderGallery();
+  } catch (err) {
+    toast(err.message || "Could not delete");
+    btn.disabled = false;
+  }
 });
 
 document.getElementById("copyNumberBtn").addEventListener("click", async () => {

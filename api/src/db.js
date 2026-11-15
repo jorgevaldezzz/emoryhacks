@@ -1,4 +1,13 @@
-import { DatabaseSync } from "node:sqlite";
+/**
+ * Cloud MongoDB for user accounts + gallery metadata.
+ *
+ * Users: username/email + bcrypt password_hash (never plaintext, never Typesense).
+ * Gallery rows point at Vercel Blob URLs (see object-store.js).
+ *
+ * Set MONGODB_URI (MongoDB Atlas or any MongoDB). Tests may pass a memory-server URI.
+ */
+
+import { MongoClient } from "mongodb";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,150 +22,211 @@ export const UPLOAD_DIR = process.env.UPLOAD_DIR
   ? path.resolve(process.env.UPLOAD_DIR)
   : path.join(ROOT, "uploads");
 
-const DB_PATH = process.env.SQLITE_PATH
-  ? path.resolve(process.env.SQLITE_PATH)
-  : path.join(DATA_DIR, "imphotogenic.sqlite");
-
-/** @type {DatabaseSync | null} */
+/** @type {MongoClient | null} */
+let client = null;
+/** @type {import('mongodb').Db | null} */
 let db = null;
 
-export function getDb() {
+export function databaseMode() {
+  return "mongodb";
+}
+
+function requireDb() {
   if (!db) throw new Error("Database has not been opened yet");
   return db;
 }
 
-export function openDb() {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
+/**
+ * @param {string} [uri]
+ */
+export async function openDb(uri = process.env.MONGODB_URI) {
+  const connectionString = String(uri || "").trim();
+  if (!connectionString) {
+    throw new Error(
+      "MONGODB_URI is required. Use a MongoDB Atlas connection string (or mongodb-memory-server in tests)."
+    );
+  }
+
   fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
-  db = new DatabaseSync(DB_PATH);
-  db.exec(`
-    PRAGMA journal_mode = WAL;
-    PRAGMA foreign_keys = ON;
+  client = new MongoClient(connectionString);
+  await client.connect();
+  const dbName = process.env.MONGODB_DB?.trim() || undefined;
+  db = client.db(dbName);
 
-    CREATE TABLE IF NOT EXISTS users (
-      id TEXT PRIMARY KEY,
-      email TEXT NOT NULL UNIQUE COLLATE NOCASE,
-      name TEXT NOT NULL,
-      password_hash TEXT NOT NULL,
-      created_at TEXT NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS gallery_items (
-      id TEXT PRIMARY KEY,
-      user_id TEXT NOT NULL,
-      filename TEXT NOT NULL,
-      original_name TEXT,
-      note TEXT,
-      source TEXT NOT NULL DEFAULT 'upload',
-      created_at TEXT NOT NULL,
-      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_gallery_user_created
-      ON gallery_items(user_id, created_at DESC);
-  `);
-
-  return db;
+  await db.collection("users").createIndexes([
+    { key: { email: 1 }, unique: true, name: "users_email_unique" },
+    { key: { username: 1 }, unique: true, sparse: true, name: "users_username_unique" },
+  ]);
+  await db.collection("gallery_items").createIndexes([
+    { key: { user_id: 1, created_at: -1 }, name: "gallery_user_created" },
+  ]);
 }
 
-export function closeDb() {
-  if (db) {
-    db.close();
+export async function closeDb() {
+  if (client) {
+    await client.close();
+    client = null;
     db = null;
   }
 }
 
 /**
+ * @param {Record<string, unknown>} row
+ */
+function mapUser(row) {
+  if (!row) return undefined;
+  return {
+    id: row._id,
+    email: row.email,
+    name: row.username || row.name,
+    username: row.username || row.name,
+    password_hash: row.password_hash,
+    created_at: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at,
+  };
+}
+
+/**
+ * @param {Record<string, unknown>} row
+ */
+function mapGallery(row) {
+  if (!row) return undefined;
+  return {
+    id: row._id,
+    filename: row.filename,
+    url: row.url || null,
+    pathname: row.pathname || null,
+    originalName: row.original_name ?? null,
+    note: row.note ?? null,
+    source: row.source,
+    createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
+  };
+}
+
+/**
  * @param {string} email
  */
-export function findUserByEmail(email) {
-  return getDb()
-    .prepare("SELECT * FROM users WHERE email = ? COLLATE NOCASE")
-    .get(email.trim().toLowerCase());
+export async function findUserByEmail(email) {
+  const row = await requireDb()
+    .collection("users")
+    .findOne({ email: email.trim().toLowerCase() });
+  return mapUser(row);
 }
 
 /**
  * @param {string} id
  */
-export function findUserById(id) {
-  return getDb().prepare("SELECT * FROM users WHERE id = ?").get(id);
+export async function findUserById(id) {
+  const row = await requireDb().collection("users").findOne({ _id: id });
+  return mapUser(row);
+}
+
+/**
+ * @param {string} username
+ */
+export async function findUserByUsername(username) {
+  const normalized = String(username || "").trim().toLowerCase();
+  if (!normalized) return undefined;
+  const row = await requireDb().collection("users").findOne({
+    username: normalized,
+  });
+  return mapUser(row);
 }
 
 /**
  * @param {{ id: string, email: string, name: string, passwordHash: string, createdAt: string }} user
  */
-export function insertUser(user) {
-  getDb()
-    .prepare(
-      `INSERT INTO users (id, email, name, password_hash, created_at)
-       VALUES (?, ?, ?, ?, ?)`
-    )
-    .run(
-      user.id,
-      user.email.trim().toLowerCase(),
-      user.name,
-      user.passwordHash,
-      user.createdAt
-    );
+export async function insertUser(user) {
+  const username = String(user.name || "").trim().toLowerCase();
+  await requireDb().collection("users").insertOne({
+    _id: user.id,
+    email: user.email.trim().toLowerCase(),
+    username,
+    name: username,
+    password_hash: user.passwordHash,
+    created_at: new Date(user.createdAt),
+  });
 }
 
 /**
  * @param {string} userId
  */
-export function listGalleryForUser(userId) {
-  return getDb()
-    .prepare(
-      `SELECT id, filename, original_name AS originalName, note, source, created_at AS createdAt
-       FROM gallery_items
-       WHERE user_id = ?
-       ORDER BY created_at DESC`
-    )
-    .all(userId);
+export async function listGalleryForUser(userId) {
+  const rows = await requireDb()
+    .collection("gallery_items")
+    .find({ user_id: userId })
+    .sort({ created_at: -1 })
+    .toArray();
+  return rows.map(mapGallery);
 }
 
 /**
- * @param {{ id: string, userId: string, filename: string, originalName?: string | null, note?: string | null, source: string, createdAt: string }} item
+ * @param {string} userId
  */
-export function insertGalleryItem(item) {
-  getDb()
-    .prepare(
-      `INSERT INTO gallery_items
-         (id, user_id, filename, original_name, note, source, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
-    )
-    .run(
-      item.id,
-      item.userId,
-      item.filename,
-      item.originalName ?? null,
-      item.note ?? null,
-      item.source,
-      item.createdAt
-    );
+export async function countGalleryForUser(userId) {
+  return requireDb().collection("gallery_items").countDocuments({ user_id: userId });
+}
+
+/**
+ * @param {string} userId
+ * @param {number} limit
+ */
+export async function listOldestGalleryForUser(userId, limit) {
+  const rows = await requireDb()
+    .collection("gallery_items")
+    .find({ user_id: userId })
+    .sort({ created_at: 1 })
+    .limit(limit)
+    .toArray();
+  return rows.map(mapGallery);
+}
+
+/**
+ * @param {{
+ *   id: string,
+ *   userId: string,
+ *   filename: string,
+ *   url?: string | null,
+ *   pathname?: string | null,
+ *   originalName?: string | null,
+ *   note?: string | null,
+ *   source: string,
+ *   createdAt: string,
+ * }} item
+ */
+export async function insertGalleryItem(item) {
+  await requireDb().collection("gallery_items").insertOne({
+    _id: item.id,
+    user_id: item.userId,
+    filename: item.filename,
+    url: item.url ?? null,
+    pathname: item.pathname ?? null,
+    original_name: item.originalName ?? null,
+    note: item.note ?? null,
+    source: item.source,
+    created_at: new Date(item.createdAt),
+  });
 }
 
 /**
  * @param {string} id
  * @param {string} userId
  */
-export function findGalleryItemForUser(id, userId) {
-  return getDb()
-    .prepare(
-      `SELECT id, filename, original_name AS originalName, note, source, created_at AS createdAt
-       FROM gallery_items
-       WHERE id = ? AND user_id = ?`
-    )
-    .get(id, userId);
+export async function findGalleryItemForUser(id, userId) {
+  const row = await requireDb().collection("gallery_items").findOne({
+    _id: id,
+    user_id: userId,
+  });
+  return mapGallery(row);
 }
 
 /**
  * @param {string} id
  * @param {string} userId
  */
-export function deleteGalleryItem(id, userId) {
-  const item = findGalleryItemForUser(id, userId);
+export async function deleteGalleryItem(id, userId) {
+  const item = await findGalleryItemForUser(id, userId);
   if (!item) return null;
-  getDb().prepare("DELETE FROM gallery_items WHERE id = ? AND user_id = ?").run(id, userId);
+  await requireDb().collection("gallery_items").deleteOne({ _id: id, user_id: userId });
   return item;
 }
