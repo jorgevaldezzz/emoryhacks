@@ -85,23 +85,29 @@ export default defineAgent({
 
     // Load the development reference from POSE_REFERENCE_IMAGE or reference-images/.
     // Coaching compares each live frame to that pose's skeleton, not the sample scaffold.
+    // Do NOT await landmark extraction before session.start — xAI setReference takes ~20s and
+    // the Mac ends the call if the agent is silent for 10s after bridge_ready.
     /** @type {string | null} */
     let referenceImage = null;
+    /** @type {ReturnType<typeof createPoseMatcher> | undefined} */
     let poseMatcher;
-    try {
-      const loaded = await loadReferenceImage();
-      if (loaded) {
+    /** @type {Promise<void>} */
+    const referenceReady = (async () => {
+      try {
+        const loaded = await loadReferenceImage();
+        if (!loaded) {
+          console.warn('[pose-matcher] no reference image in POSE_REFERENCE_IMAGE or reference-images/');
+          return;
+        }
         referenceImage = loaded.dataUrl;
         const matcher = createPoseMatcher({ extractPose: image => extractPoseFromImage(image) });
         await matcher.setReference(loaded.dataUrl);
         poseMatcher = matcher;
         console.log(`[pose-matcher] reference pose ready from ${loaded.path}`);
-      } else {
-        console.warn('[pose-matcher] no reference image in POSE_REFERENCE_IMAGE or reference-images/');
+      } catch (error) {
+        console.warn('[pose-matcher] reference pose unavailable', error instanceof Error ? error.message : error);
       }
-    } catch (error) {
-      console.warn('[pose-matcher] reference pose unavailable', error instanceof Error ? error.message : error);
-    }
+    })();
 
     const latestCropped = () => {
       const photo = camera.latest();
@@ -317,6 +323,7 @@ export default defineAgent({
             description: 'Compare the live frame to the reference skeleton and return the one correction that closes the gap. If they already match, the countdown and photo run inside this tool. Call when they ask for guidance. Do not wait for them to decide they are lined up.',
             execute: async () => {
               if (busy) return { ok: false, message: 'Already working. Wait a moment.' };
+              await referenceReady;
               if (!referenceImage && !poseMatcher) {
                 return { ok: false, message: 'Speak English only. Say you need a reference pose in reference-images before you can guide them.' };
               }
@@ -344,25 +351,27 @@ export default defineAgent({
               return snap;
             },
           }),
-          ...(poseMatcher ? {
-            match_reference_pose: llm.tool({
-              description: 'Compare the live frame to the reference skeleton. Say only the returned difference. If they match, the countdown and photo run inside this tool.',
-              execute: async () => {
-                if (busy) return { ok: false, message: 'Already working. Wait a moment.' };
-                const cropped = latestCropped();
-                if (!cropped) return { ok: false, message: 'No camera frame yet. Ask them to keep FaceTime Video on.' };
-                let judged;
-                busy = true;
-                try {
-                  judged = await judgeFrame(cropped);
-                } catch (error) {
-                  console.warn('[pose-matcher] reference comparison failed', error instanceof Error ? error.message : error);
-                  return { ok: false, message: 'Could not compare with the reference pose. Ask them to try again.' };
-                } finally { busy = false; }
-                return followCoachStep(judged, { speak: false, repeat: true });
-              },
-            }),
-          } : {}),
+          match_reference_pose: llm.tool({
+            description: 'Compare the live frame to the reference skeleton. Say only the returned difference. If they match, the countdown and photo run inside this tool.',
+            execute: async () => {
+              if (busy) return { ok: false, message: 'Already working. Wait a moment.' };
+              await referenceReady;
+              if (!poseMatcher && !referenceImage) {
+                return { ok: false, message: 'Speak English only. Say you need a reference pose in reference-images before you can compare.' };
+              }
+              const cropped = latestCropped();
+              if (!cropped) return { ok: false, message: 'No camera frame yet. Ask them to keep FaceTime Video on.' };
+              let judged;
+              busy = true;
+              try {
+                judged = await judgeFrame(cropped);
+              } catch (error) {
+                console.warn('[pose-matcher] reference comparison failed', error instanceof Error ? error.message : error);
+                return { ok: false, message: 'Could not compare with the reference pose. Ask them to try again.' };
+              } finally { busy = false; }
+              return followCoachStep(judged, { speak: false, repeat: true });
+            },
+          }),
         },
       }),
       record: false,

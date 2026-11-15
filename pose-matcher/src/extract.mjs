@@ -30,19 +30,31 @@ export function normalizePoseResult(raw) {
   return { personVisible: raw?.person_visible === true && Object.keys(landmarks).length >= 3, landmarks };
 }
 
+// grok-4.7 reasons before it answers, and this landmark prompt takes it 28-36 s on a
+// single photo: 20 s aborted every call. Keep the ceiling well above that, and let
+// POSE_VISION_TIMEOUT_MS tighten it where a caller cannot wait.
+const DEFAULT_TIMEOUT_MS = 60_000;
+
 /** Extract normalized landmarks from a data URL or base64 image using xAI. */
-export async function extractPoseFromImage(image, { apiKey = process.env.XAI_API_KEY, model = process.env.POSE_VISION_MODEL || 'grok-4.7', fetchImpl = fetch } = {}) {
+export async function extractPoseFromImage(image, {
+  apiKey = process.env.XAI_API_KEY,
+  model = process.env.POSE_VISION_MODEL || process.env.XAI_VISION_MODEL || 'grok-4.7',
+  timeoutMs = Number(process.env.POSE_VISION_TIMEOUT_MS) || DEFAULT_TIMEOUT_MS,
+  fetchImpl = fetch,
+} = {}) {
   if (!apiKey) throw new Error('XAI_API_KEY is required for image pose extraction.');
   if (typeof image !== 'string' || !image) throw new TypeError('image must be a data URL or base64 string.');
   const imageUrl = image.startsWith('data:') ? image : `data:image/jpeg;base64,${image}`;
   const response = await fetchImpl('https://api.x.ai/v1/responses', {
     method: 'POST',
     headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model, store: false, input: [{ role: 'user', content: [
+    // Reading landmarks off a photo needs looking, not deliberating: low effort answers
+    // in ~13 s where the default spends ~40 s reasoning, for the same landmarks.
+    body: JSON.stringify({ model, store: false, reasoning: { effort: 'low' }, input: [{ role: 'user', content: [
       { type: 'input_image', image_url: imageUrl, detail: 'high' },
       { type: 'input_text', text: PROMPT },
     ] }] }),
-    signal: AbortSignal.timeout(20_000),
+    signal: AbortSignal.timeout(timeoutMs),
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(`Pose extraction failed (${response.status}): ${payload?.error?.message ?? response.statusText}`);
