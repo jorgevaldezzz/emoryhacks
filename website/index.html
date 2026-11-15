@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>IMPhotogenic — Clickable Prototype</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topnav">
+        <a class="brand" href="#home" data-nav="home">
+          <span class="brand-mark" aria-hidden="true"></span>
+          IMPhotogenic
+        </a>
+        <nav class="nav-links">
+          <a class="hide-sm" href="#home" data-nav="home">Platform &amp; Features</a>
+          <a class="hide-sm auth-only" href="#upload" data-nav="upload">Pose Direct</a>
+          <a class="hide-sm auth-only" href="#location" data-nav="location">Locations</a>
+          <a class="hide-sm auth-only" href="#gallery" data-nav="gallery">My Gallery</a>
+          <a class="ghost guest-only" href="#login" data-nav="login">Login</a>
+          <a class="solid guest-only" href="#login?mode=signup" data-nav="login">Sign up</a>
+          <button class="ghost auth-only hidden" id="logoutBtn" type="button">Log out</button>
+        </nav>
+      </header>
+
+      <!-- 1. HOME & FEATURES -->
+      <main id="page-home" class="page active" data-page="home">
+        <section class="hero">
+          <div>
+            <span class="eyebrow">Home &amp; Features</span>
+            <h1 class="display">
+              Lonely? Tired of your boyfriend taking horrid photos?
+              <em>IMPhotogenic</em> will lead you toward your dream feed.
+            </h1>
+            <p class="lead">
+              Upload inspiration, match nearby locations, and get live pose direction —
+              then keep every keeper in your gallery.
+            </p>
+            <div class="btn-row" style="margin-top: 22px">
+              <a class="btn btn-primary" href="#login?mode=signup">Sign up</a>
+              <a class="btn btn-secondary" href="#login">Login</a>
+            </div>
+          </div>
+        </section>
+
+        <section class="feature-grid">
+          <article class="feature-card">
+            <span class="chip">Background matching</span>
+            <h3>10km Radius Background Matching</h3>
+            <p>
+              Find parks, cafés, alleys, and urban spots near you that echo the vibe of
+              your reference photo.
+            </p>
+            <div class="stat-row">
+              <span class="chip">7 near filters</span>
+              <span class="chip">15 spots within 10km</span>
+            </div>
+          </article>
+          <article class="feature-card">
+            <span class="chip">Live direction</span>
+            <h3>Live FaceTime Pose Guidance</h3>
+            <p>
+              Connect with real-time coaching so your angles, hands, and framing actually
+              land the shot.
+            </p>
+            <div class="stat-row">
+              <span class="chip">Omni-AI assist</span>
+              <span class="chip">Director on call</span>
+            </div>
+          </article>
+        </section>
+
+        <section class="cta-band">
+          <div>
+            <h2>Start your personalized AI-driven photo shoot right now.</h2>
+            <p>Create an account to unlock upload, location matching, and your gallery.</p>
+          </div>
+          <a class="btn btn-primary" href="#login?mode=signup">Get started</a>
+        </section>
+      </main>
+
+      <!-- 2. LOGIN & ONBOARDING -->
+      <main id="page-login" class="page" data-page="login">
+        <div class="auth-wrap">
+          <form class="auth-card" id="authForm">
+            <span class="eyebrow">Login &amp; Onboarding</span>
+            <h1 id="authTitle">Welcome back</h1>
+            <p class="sub" id="authSub">Log in to continue to Pose Direct &amp; Upload.</p>
+
+            <div class="tabs" role="tablist">
+              <button class="tab active" type="button" data-mode="login">Login</button>
+              <button class="tab" type="button" data-mode="signup">Sign up</button>
+            </div>
+
+            <div class="field signup-only hidden">
+              <label for="name">Name</label>
+              <input id="name" name="name" type="text" placeholder="Your name" />
+            </div>
+            <div class="field">
+              <label for="email">Email</label>
+              <input id="email" name="email" type="email" required placeholder="you@email.com" />
+            </div>
+            <div class="field">
+              <label for="password">Password</label>
+              <input id="password" name="password" type="password" required placeholder="••••••••" minlength="6" />
+            </div>
+
+            <button class="btn btn-primary btn-block" type="submit" id="authSubmit">Log in</button>
+            <p class="form-note">
+              <span id="authSwitchText">Need an account?</span>
+              <button type="button" id="authSwitch">Sign up</button>
+            </p>
+          </form>
+        </div>
+      </main>
+
+      <!-- 3. POSE DIRECT & UPLOAD -->
+      <main id="page-upload" class="page" data-page="upload">
+        <div class="split">
+          <section class="panel">
+            <span class="eyebrow">Pose Direct &amp; Upload</span>
+            <h1>Upload Inspiration &amp; Connect with Omni-AI</h1>
+            <p class="sub">
+              Drop a reference image. We’ll prep aesthetic background matching and
+              real-time AI photo direction.
+            </p>
+
+            <label class="upload-zone" id="uploadZone" for="fileInput">
+              <input class="hidden" id="fileInput" type="file" accept="image/*" />
+              <div id="uploadEmpty">
+                <strong>Drag &amp; drop your inspiration photo</strong>
+                <span>or click to browse · JPG, PNG</span>
+              </div>
+              <img class="upload-preview hidden" id="uploadPreview" alt="Uploaded inspiration preview" />
+            </label>
+          </section>
+
+          <aside class="panel stack">
+            <div>
+              <h2>Next step</h2>
+              <p class="sub" style="margin-bottom: 0">
+                After upload, choose whether you want similar locations &amp; recommendations.
+              </p>
+            </div>
+
+            <label class="toggle">
+              <input type="checkbox" id="wantLocations" checked />
+              <div>
+                <strong>Look for similar locations</strong>
+                <div class="reco-meta">Ask for nearby spots that match this background vibe.</div>
+              </div>
+            </label>
+
+            <button class="btn btn-primary" id="continueUpload" type="button" disabled>
+              Continue
+            </button>
+            <button class="btn btn-secondary" id="skipToGallery" type="button">
+              Skip to My Gallery →
+            </button>
+          </aside>
+        </div>
+      </main>
+
+      <!-- 4. LOCATION & RECOMMENDATION -->
+      <main id="page-location" class="page" data-page="location">
+        <div class="split">
+          <section class="panel">
+            <span class="eyebrow">Location &amp; Recommendation</span>
+            <h1>Spatial Background Proximity</h1>
+            <p class="sub">Recommended spots near you that sync with your uploaded inspiration.</p>
+
+            <div class="map-stage" aria-label="Map of recommended photo spots">
+              <span class="map-pin you" style="left: 36%; top: 48%">You</span>
+              <span class="map-pin" style="left: 58%; top: 36%">1.2km SoHo</span>
+              <span class="map-pin" style="left: 72%; top: 62%">4.8km Brutalist</span>
+              <span class="map-pin" style="left: 48%; top: 68%">6.4km Glasshouse</span>
+            </div>
+
+            <div class="reco-list">
+              <article class="reco-card">
+                <span class="tag">Top chromatic sync</span>
+                <h3>SoHo Cobblestoned Alleyways</h3>
+                <div class="reco-meta">1.2km away · Recommended spot</div>
+              </article>
+              <article class="reco-card">
+                <span class="tag">Geometric alignment</span>
+                <h3>Brutalist Galleria &amp; Shadow Court</h3>
+                <div class="reco-meta">4.8km away · Recommended spot</div>
+              </article>
+              <article class="reco-card">
+                <span class="tag">Soft diffusion</span>
+                <h3>Glasshouse Conservatory</h3>
+                <div class="reco-meta">6.4km away · Recommended spot</div>
+              </article>
+            </div>
+          </section>
+
+          <aside class="stack">
+            <div class="callout">
+              <h3>Atelier Remote Link</h3>
+              <p>Direct live FaceTime shoot with a creative director for pose guidance.</p>
+              <div class="phone">+1 (646) 391-6614</div>
+              <button class="btn btn-primary" id="facetimeBtn" type="button">Launch FaceTime Call</button>
+              <button class="btn btn-secondary" id="copyNumberBtn" type="button" style="background: transparent; color: #fff; border-color: rgba(255,255,255,0.25)">
+                Copy Studio Number
+              </button>
+            </div>
+            <a class="btn btn-primary btn-block" href="#gallery">Continue to My Gallery →</a>
+            <a class="btn btn-secondary btn-block" href="#upload">← Back to Upload</a>
+          </aside>
+        </div>
+      </main>
+
+      <!-- 5. MY GALLERY -->
+      <main id="page-gallery" class="page" data-page="gallery">
+        <div class="gallery-head">
+          <div>
+            <span class="eyebrow">My Gallery</span>
+            <h1 class="display" style="margin: 0; font-size: clamp(2rem, 4vw, 3rem)">
+              Your shoot library
+            </h1>
+            <p class="sub" id="gallerySub" style="margin-top: 8px">
+              Saved inspiration and session keepsakes for this account.
+            </p>
+          </div>
+          <a class="btn btn-primary" href="#upload">New upload</a>
+        </div>
+
+        <div class="gallery-grid" id="galleryGrid"></div>
+      </main>
+    </div>
+
+    <div class="flow-hint" id="flowHint">
+      <strong>Prototype flow</strong>
+      Home → Sign up / Login → Upload → (optional) Locations → Gallery
+    </div>
+    <div class="toast" id="toast" role="status"></div>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
