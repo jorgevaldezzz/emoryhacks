@@ -19,13 +19,31 @@ function corsOrigins() {
     .filter(Boolean);
 }
 
+function isProjectVercelOrigin(origin) {
+  try {
+    const url = new URL(origin);
+    return url.protocol === "https:" &&
+      /^emoryhacks-[a-z0-9-]+-jorgevaldezzzs-projects\.vercel\.app$/i.test(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
+function corsOrigin(origin, callback) {
+  const allowed = corsOrigins();
+  if (allowed === true || (origin && (allowed.includes(origin) || isProjectVercelOrigin(origin)))) {
+    return callback(null, origin || true);
+  }
+  return callback(null, false);
+}
+
 export function createApp() {
   const app = express();
   app.set("trust proxy", 1);
 
   app.use(
     cors({
-      origin: corsOrigins(),
+      origin: corsOrigin,
       credentials: true,
     })
   );

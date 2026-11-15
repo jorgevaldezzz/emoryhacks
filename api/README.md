@@ -35,6 +35,8 @@ Configure the Render web service connected to this repository:
    service environment. Set `CORS_ORIGIN` to the website's allowed origins,
    comma-separated, for example:
    `https://www.myboyfriendtakeshorriblephotos.club,https://myboyfriendtakeshorriblephotos.club`.
+   Vercel deployment URLs for this project are also allowed so preview links can
+   reach the API during review.
 4. Save and deploy the latest commit from `main`.
 
 No persistent local disk is needed. Account and gallery data live in MongoDB.
