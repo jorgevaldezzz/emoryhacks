@@ -16,6 +16,23 @@ function stripHandoff(text) {
     .replace(/^[—\-,\s]+|[—\-,\s]+$/g, '');
 }
 
+const FRAMING = /\b(in frame|into frame|framing|step back|step into|arms and legs|feet and arms|arms and feet)\b/i;
+
+/**
+ * A joint correction worth saying. Framing nags are dropped: a fully visible
+ * caller was being told to keep their arms and feet in frame.
+ * @param {unknown} text
+ * @returns {string | null}
+ */
+export function spokenCorrection(text) {
+  const say = stripHandoff(text);
+  if (!say || FRAMING.test(say)) return null;
+  return say;
+}
+
+/** Tool result when the caller should hear nothing. Not a line to read aloud. */
+export const noSpeech = 'Instruction to you, not a line for the caller: produce no audio on this turn.';
+
 /**
  * Decide the next step from a live-frame comparison against the reference skeleton.
  * A match snaps once. The next mismatch arms another snap. The caller is not asked
@@ -33,7 +50,8 @@ export function nextCoachStep(result, state = {}) {
   }
 
   const blocked = status === 'person_not_visible' || status === 'insufficient_visibility';
-  if (!blocked && (status === 'matched' || result?.ready === true)) {
+  if (blocked) return { action: 'wait', say: null, autoSnapArmed: true };
+  if (status === 'matched' || result?.ready === true) {
     if (!armed) return { action: 'wait', say: null, autoSnapArmed: false };
     return { action: 'snap', say: 'Hold still.', autoSnapArmed: false };
   }
@@ -41,9 +59,9 @@ export function nextCoachStep(result, state = {}) {
   const raw = typeof result?.feedback === 'string' && result.feedback.trim()
     ? result.feedback
     : result?.cue;
-  const say = stripHandoff(raw);
+  const say = spokenCorrection(raw);
   if (say) return { action: 'coach', say, autoSnapArmed: true };
-  if (status === 'adjust' || blocked) return { action: 'wait', say: null, autoSnapArmed: true };
+  if (status === 'adjust') return { action: 'wait', say: null, autoSnapArmed: true };
   return { action: 'wait', say: null, autoSnapArmed: armed };
 }
 
@@ -53,7 +71,7 @@ export function nextCoachStep(result, state = {}) {
  * @returns {string}
  */
 export function coachSpeech(cue) {
-  return `Speak English only. Say "Okay," then only this pose correction in one short sentence, then stop. Do not ask them to say cheese, ask for another check, or decide if they match. Never say you looked at an image or photo: ${cue}`;
+  return `Speak English only. Say "Okay," then only this joint correction in one short sentence, then stop. Do not add framing, feet, or where they should stand. Do not repeat a correction you already gave. Never say you looked at an image or photo: ${cue}`;
 }
 
 /**

@@ -24,7 +24,11 @@ export function createPoseMatcher({ extractPose, onResult = () => {}, intervalMs
     busy = true;
     try {
       const current = await extractPose(image);
-      const result = { ...comparePoses(reference, current), checkedAt: new Date(now()).toISOString() };
+      const result = {
+        ...comparePoses(reference, current),
+        landmarks: current?.landmarks ?? {},
+        checkedAt: new Date(now()).toISOString(),
+      };
       await onResult(result);
       return result;
     } finally { busy = false; }
