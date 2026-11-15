@@ -16,5 +16,7 @@
   window.IMPHOTOGENIC_API_URL =
     fromStorage ||
     window.IMPHOTOGENIC_API_URL ||
-    (isLocalSite ? "http://127.0.0.1:8787" : "");
+    (isLocalSite
+      ? "http://127.0.0.1:8787"
+      : "https://imphotogenic-api.onrender.com");
 })();
