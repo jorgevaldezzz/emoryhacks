@@ -7,6 +7,7 @@ import { coachSpeech, nextCoachStep, noSpeech, photoAckSpeech, shouldSpeakPoseCu
 import { saveDebugSkeleton } from './debug_skeleton.mjs';
 import { drawFace, FPS, HEIGHT, WIDTH } from './face.mjs';
 import { cropFacetimeFrame, frameToAgentRgba } from './frame_display.mjs';
+import { uploadCaptureToGallery } from './gallery_upload.mjs';
 import { greetOnBridgeReady } from './greet.mjs';
 import { createGrokPoseCoach } from './grok_pose_coach.mjs';
 import { loadReferenceImage } from './reference_pose.mjs';
@@ -169,6 +170,26 @@ export default defineAgent({
       showCapture(cropped);
       const saved = await saveFrameCapture(cropped);
       console.log(`[caller-camera] snap saved=${saved.savedPath ?? 'no'} ok=${saved.ok}`);
+
+      if (saved.ok && saved.bytes) {
+        try {
+          const gallery = await uploadCaptureToGallery({
+            bytes: saved.bytes,
+            mimeType: 'image/png',
+            name: saved.savedPath ? saved.savedPath.split(/[\\/]/).pop() : undefined,
+            note: 'Captured by Chert pose agent',
+          });
+          if (gallery.skipped) {
+            console.log(`[gallery] ${gallery.message}`);
+          } else if (gallery.ok) {
+            console.log(`[gallery] uploaded item=${gallery.item?.id ?? 'ok'}`);
+          } else {
+            console.warn(`[gallery] ${gallery.message}`);
+          }
+        } catch (error) {
+          console.warn('[gallery] upload failed', error instanceof Error ? error.message : error);
+        }
+      }
 
       return {
         ok: saved.ok,

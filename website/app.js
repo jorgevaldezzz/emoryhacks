@@ -1,7 +1,12 @@
 const STORAGE_KEY = "imphotogenic-prototype-v1";
 
+function apiBase() {
+  return String(window.IMPHOTOGENIC_API_URL || "").replace(/\/$/, "");
+}
+
 const defaultState = () => ({
   user: null,
+  token: null,
   authMode: "login",
   uploadedDataUrl: null,
   uploadedName: null,
@@ -22,22 +27,16 @@ function loadState() {
 
 function saveState() {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-    return;
-  } catch {
-    // Large photos often exceed localStorage quota. Keep UI state in memory
-    // and persist a light snapshot so Continue is never blocked by storage.
-  }
-
-  try {
     const light = {
       user: state.user,
+      token: state.token,
       authMode: state.authMode,
       wantLocations: state.wantLocations,
       userLocation: state.userLocation,
       uploadedName: state.uploadedName,
+      // Keep large images out of localStorage; the API owns gallery bytes.
       uploadedDataUrl: null,
-      gallery: state.gallery.map(({ name, note, at }) => ({ name, note, at })),
+      gallery: [],
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(light));
   } catch {
@@ -69,7 +68,7 @@ function requireAuth(path) {
 }
 
 function updateAuthChrome() {
-  const loggedIn = Boolean(state.user);
+  const loggedIn = Boolean(state.user && state.token);
   document.querySelectorAll(".auth-only").forEach((el) => {
     el.classList.toggle("hidden", !loggedIn);
   });
@@ -108,7 +107,6 @@ function clearUpload() {
   state.uploadedDataUrl = null;
   state.uploadedName = null;
   state.userLocation = null;
-  state.gallery = [];
   saveState();
 
   const fileInput = document.getElementById("fileInput");
@@ -116,7 +114,51 @@ function clearUpload() {
 
   closeLocationModal();
   renderUpload();
-  renderGallery();
+}
+
+async function api(pathname, options = {}) {
+  const base = apiBase();
+  if (!base) {
+    throw new Error("Set IMPHOTOGENIC_API_URL to your API server");
+  }
+
+  const headers = { ...(options.headers || {}) };
+  if (options.body && !(options.body instanceof FormData)) {
+    headers["Content-Type"] = headers["Content-Type"] || "application/json";
+  }
+  if (state.token) {
+    headers.Authorization = `Bearer ${state.token}`;
+  }
+
+  const res = await fetch(`${base}${pathname}`, { ...options, headers });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const err = new Error(body.error || res.statusText || "Request failed");
+    err.status = res.status;
+    throw err;
+  }
+  return body;
+}
+
+async function refreshGallery() {
+  if (!state.token) {
+    state.gallery = [];
+    return;
+  }
+  try {
+    const data = await api("/api/gallery");
+    state.gallery = (data.items || []).map((item) => ({
+      id: item.id,
+      url: item.url,
+      name: item.originalName || (item.source === "chert" ? "Chert capture" : "Inspiration upload"),
+      note: item.note || (item.source === "chert" ? "Captured by Chert" : "Saved to your gallery"),
+      source: item.source,
+      at: item.createdAt,
+    }));
+  } catch (err) {
+    console.warn("gallery fetch failed", err);
+    toast(err.message || "Could not load gallery");
+  }
 }
 
 function renderUpload() {
@@ -226,9 +268,16 @@ function requestUserLocation() {
       allowBtn.disabled = false;
       setTimeout(goToLocationPage, 600);
     },
-    // Network/IP location is much faster than GPS high-accuracy on desktops.
     { enableHighAccuracy: false, timeout: 4000, maximumAge: 300000 }
   );
+}
+
+function escapeHtml(value) {
+  return String(value || "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
 }
 
 function renderGallery() {
@@ -236,13 +285,13 @@ function renderGallery() {
   const sub = document.getElementById("gallerySub");
   const name = state.user?.name || state.user?.email || "you";
 
-  sub.textContent = `Gallery for ${name}. Uploads from this session stay with the account.`;
+  sub.textContent = `Gallery for ${name}. Inspiration uploads and Chert snaps stay with this account.`;
 
   if (!state.gallery.length) {
     grid.innerHTML = `
       <div class="empty-state">
         <strong>No shots yet</strong>
-        <p style="color:var(--muted);margin:8px 0 18px">Upload inspiration to seed your gallery.</p>
+        <p style="color:var(--muted);margin:8px 0 18px">Upload inspiration or take a Chert snap to seed your gallery.</p>
         <a class="btn btn-primary" href="#upload">Go to Pose Direct &amp; Upload</a>
       </div>
     `;
@@ -251,15 +300,16 @@ function renderGallery() {
 
   grid.innerHTML = state.gallery
     .map((item, index) => {
-      const thumb = item.dataUrl
-        ? `<img class="thumb" src="${item.dataUrl}" alt="${item.name || "Gallery item " + (index + 1)}" />`
-        : `<div class="thumb" role="img" aria-label="${item.name || "Gallery item"}"></div>`;
+      const src = item.url || item.dataUrl;
+      const thumb = src
+        ? `<img class="thumb" src="${escapeHtml(src)}" alt="${escapeHtml(item.name || "Gallery item " + (index + 1))}" />`
+        : `<div class="thumb" role="img" aria-label="${escapeHtml(item.name || "Gallery item")}"></div>`;
       return `
       <article class="gallery-card">
         ${thumb}
         <div class="meta">
-          <strong>${item.name || "Inspiration upload"}</strong>
-          <span>${item.note || "Saved to your gallery"}</span>
+          <strong>${escapeHtml(item.name || "Inspiration upload")}</strong>
+          <span>${escapeHtml(item.note || "Saved to your gallery")}</span>
         </div>
       </article>
     `;
@@ -270,14 +320,13 @@ function renderGallery() {
 function showPage(path, params = {}) {
   let target = path || "home";
 
-  if (requireAuth(target) && !state.user) {
+  if (requireAuth(target) && !(state.user && state.token)) {
     toast("Sign up or log in first");
     target = "login";
     history.replaceState(null, "", "#login");
   }
 
-  // Logged-in users can only reach login again by logging out.
-  if (target === "login" && state.user) {
+  if (target === "login" && state.user && state.token) {
     target = "upload";
     history.replaceState(null, "", "#upload");
   }
@@ -304,7 +353,9 @@ function showPage(path, params = {}) {
   }
   if (target === "upload") renderUpload();
   if (target === "location") renderLocation();
-  if (target === "gallery") renderGallery();
+  if (target === "gallery") {
+    refreshGallery().then(() => renderGallery());
+  }
 }
 
 function route() {
@@ -312,33 +363,44 @@ function route() {
   showPage(path, params);
 }
 
-function handleAuthSubmit(event) {
+async function handleAuthSubmit(event) {
   event.preventDefault();
   const form = event.currentTarget;
   const email = form.email.value.trim();
   const password = form.password.value;
   const name = form.name.value.trim() || email.split("@")[0];
+  const submit = document.getElementById("authSubmit");
 
   if (!email || !password) {
     toast("Enter email and password");
     return;
   }
 
-  state.user = {
-    email,
-    name,
-    createdAt: new Date().toISOString(),
-  };
-  // Fresh account/session starts with an empty gallery and upload tray.
-  state.gallery = [];
-  state.uploadedDataUrl = null;
-  state.uploadedName = null;
-  state.userLocation = null;
-  saveState();
-  renderUpload();
-  renderGallery();
-  toast(state.authMode === "signup" ? "Account created" : "Logged in");
-  location.hash = "#upload";
+  submit.disabled = true;
+  try {
+    const path = state.authMode === "signup" ? "/api/auth/signup" : "/api/auth/login";
+    const data = await api(path, {
+      method: "POST",
+      body: JSON.stringify(
+        state.authMode === "signup" ? { email, password, name } : { email, password }
+      ),
+    });
+
+    state.user = data.user;
+    state.token = data.token;
+    state.gallery = [];
+    state.uploadedDataUrl = null;
+    state.uploadedName = null;
+    state.userLocation = null;
+    saveState();
+    renderUpload();
+    toast(state.authMode === "signup" ? "Account created" : "Logged in");
+    location.hash = "#upload";
+  } catch (err) {
+    toast(err.message || "Authentication failed");
+  } finally {
+    submit.disabled = false;
+  }
 }
 
 function ingestFile(file) {
@@ -358,17 +420,23 @@ function ingestFile(file) {
   reader.readAsDataURL(file);
 }
 
-function addUploadToGallery(note) {
-  if (!state.uploadedDataUrl) return;
-  const exists = state.gallery.some((item) => item.dataUrl === state.uploadedDataUrl);
-  if (exists) return;
-  state.gallery.unshift({
-    dataUrl: state.uploadedDataUrl,
-    name: state.uploadedName || "Inspiration upload",
-    note,
-    at: new Date().toISOString(),
-  });
-  saveState();
+async function addUploadToGallery(note) {
+  if (!state.uploadedDataUrl || !state.token) return;
+
+  try {
+    await api("/api/gallery", {
+      method: "POST",
+      body: JSON.stringify({
+        imageBase64: state.uploadedDataUrl,
+        name: state.uploadedName || "Inspiration upload",
+        note,
+        source: "upload",
+      }),
+    });
+    await refreshGallery();
+  } catch (err) {
+    toast(err.message || "Could not save to gallery");
+  }
 }
 
 function handleContinueUpload(event) {
@@ -385,7 +453,6 @@ function handleContinueUpload(event) {
     return;
   }
 
-  // Open the next step first so storage/gallery side effects can't swallow the click.
   if (wantLocations) {
     openLocationModal();
   } else {
@@ -416,6 +483,8 @@ document.getElementById("authSwitch").addEventListener("click", () => {
 
 document.getElementById("logoutBtn").addEventListener("click", () => {
   state.user = null;
+  state.token = null;
+  state.gallery = [];
   clearUpload();
   saveState();
   toast("Logged out");
@@ -478,10 +547,6 @@ document.getElementById("skipToGallery").addEventListener("click", () => {
   location.hash = "#gallery";
 });
 
-document.getElementById("facetimeBtn").addEventListener("click", () => {
-  toast("FaceTime launch is mocked in this prototype");
-});
-
 document.getElementById("copyNumberBtn").addEventListener("click", async () => {
   const number = "+1 (646) 391-6614";
   try {
@@ -492,5 +557,19 @@ document.getElementById("copyNumberBtn").addEventListener("click", async () => {
   }
 });
 
+async function restoreSession() {
+  if (!state.token) return;
+  try {
+    const data = await api("/api/auth/me");
+    state.user = data.user;
+    saveState();
+  } catch {
+    state.user = null;
+    state.token = null;
+    state.gallery = [];
+    saveState();
+  }
+}
+
 window.addEventListener("hashchange", route);
-route();
+restoreSession().finally(route);
