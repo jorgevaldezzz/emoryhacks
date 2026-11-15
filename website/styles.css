@@ -94,7 +94,7 @@ img {
 }
 
 .brand-logo {
-  width: clamp(150px, 19vw, 210px);
+  width: 72px;
   height: auto;
 }
 
