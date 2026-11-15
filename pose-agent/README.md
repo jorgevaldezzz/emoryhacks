@@ -64,6 +64,9 @@ processed locally by a persistent Python sidecar. Grok compares labeled
 skeleton-only drawings every four seconds; the original photos stay local. Chert
 speaks one detailed correction for the largest visible difference and suppresses
 repeats for the same focus joint. xAI Realtime continues to provide the voice.
+Mirrored caller frames are unmirrored for pose inference only, so left/right
+corrections refer to the caller's anatomical sides; previews and saved photos
+retain the original frame orientation.
 When the pose matches, it counts down and snaps: shutter flash, still on
 FaceTime, and a timestamped PNG in `captures/`. Say **cheese** only if you want
 the photo before that match. About every four seconds a test still is written to
