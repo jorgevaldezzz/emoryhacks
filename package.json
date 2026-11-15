@@ -1,8 +1,5 @@
 {
   "name": "emoryhacks",
   "private": true,
-  "workspaces": [
-    "api",
-    "typesense"
-  ]
+  "workspaces": ["api"]
 }

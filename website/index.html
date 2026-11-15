@@ -15,7 +15,6 @@
         <nav class="nav-links">
           <a class="hide-sm" href="#home" data-nav="home">Platform &amp; Features</a>
           <a class="hide-sm auth-only" href="#upload" data-nav="upload">Pose Direct</a>
-          <a class="hide-sm auth-only" href="#location" data-nav="location">Locations</a>
           <a class="hide-sm auth-only" href="#gallery" data-nav="gallery">My Gallery</a>
           <a class="ghost guest-only" href="#login" data-nav="login">Login</a>
           <a class="solid guest-only" href="#login?mode=signup" data-nav="login">Sign up</a>
@@ -36,7 +35,7 @@
               <span class="hero-promise" id="heroPromise" aria-hidden="true"><em>IMPhotogenic</em> will lead you toward your dream feed.</span>
             </h1>
             <p class="lead">
-              Upload inspiration, match nearby locations, and get live pose direction —
+              Upload inspiration, get live pose direction —
               then keep every keeper in your gallery.
             </p>
             <div class="btn-row guest-only" style="margin-top: 22px">
@@ -51,18 +50,12 @@
 
         <section class="feature-grid">
           <article class="feature-card">
-            <div class="feature-labels">
-              <span class="chip">Background matching</span>
-              <span class="chip chip-wip">WIP</span>
-            </div>
-            <h3>10km Radius Background Matching</h3>
-            <p>
-              Find parks, cafés, alleys, and urban spots near you that echo the vibe of
-              your reference photo.
-            </p>
+            <span class="chip">Personal gallery</span>
+            <h3>Keep your favorite shots</h3>
+            <p>Save inspiration uploads and Chert captures to a gallery linked to your account.</p>
             <div class="stat-row">
-              <span class="chip">7 near filters</span>
-              <span class="chip">15 spots within 10km</span>
+              <span class="chip">Account backed</span>
+              <span class="chip">Private to you</span>
             </div>
           </article>
           <article class="feature-card">
@@ -82,8 +75,8 @@
         <section class="cta-band">
           <div>
             <h2>Start your personalized AI-driven photo shoot right now.</h2>
-            <p class="guest-only">Create an account to unlock upload, location matching, and your gallery.</p>
-            <p class="auth-only hidden">You’re signed in — jump back into upload, locations, or your gallery.</p>
+            <p class="guest-only">Create an account to unlock uploads and your personal gallery.</p>
+            <p class="auth-only hidden">You’re signed in — jump back into upload or your gallery.</p>
           </div>
           <a class="btn btn-primary guest-only" href="#login?mode=signup">Get started</a>
           <a class="btn btn-primary auth-only hidden" href="#upload">Open Pose Direct</a>
@@ -132,8 +125,7 @@
             <span class="eyebrow">Pose Direct &amp; Upload</span>
             <h1>Upload Inspiration &amp; Connect with Omni-AI</h1>
             <p class="sub">
-              Drop a reference image. We’ll prep aesthetic background matching and
-              real-time AI photo direction.
+              Drop an inspiration image and get real-time AI photo direction.
             </p>
 
             <label class="upload-zone" id="uploadZone" for="fileInput">
@@ -150,72 +142,18 @@
             <div>
               <h2>Next step</h2>
               <p class="sub" style="margin-bottom: 0">
-                After upload, choose whether you want similar locations &amp; recommendations.
+                Upload an inspiration photo and save it to your account gallery.
               </p>
             </div>
-
-            <label class="toggle">
-              <input type="checkbox" id="wantLocations" checked />
-              <div>
-                <strong>Look for similar locations</strong>
-                <div class="reco-meta">Ask for nearby spots that match this background vibe.</div>
-              </div>
-            </label>
 
             <button class="btn btn-primary" id="continueUpload" type="button">
-              Continue
-            </button>
-            <button class="btn btn-secondary" id="skipToGallery" type="button">
-              Skip to My Gallery →
+              Save to My Gallery
             </button>
           </aside>
         </div>
       </main>
 
-      <!-- 4. LOCATION & RECOMMENDATION -->
-      <main id="page-location" class="page" data-page="location">
-        <div class="split">
-          <section class="panel">
-            <span class="eyebrow">Location &amp; Recommendation</span>
-            <h1>Spatial Background Proximity</h1>
-            <p class="sub" id="locationSub">Share your location to find places that match your reference photo.</p>
-            <p class="reference-scene hidden" id="referenceScene" aria-live="polite"></p>
-            <p class="location-status" id="recommendationStatus" role="status" aria-live="polite"></p>
-            <button class="btn btn-secondary hidden" id="retryLocationBtn" type="button">Turn on location</button>
-            <button class="btn btn-secondary hidden" id="retryRecommendationsBtn" type="button">Try recommendations again</button>
-            <div class="map-stage hidden" id="proximityMap" role="img" aria-label="Map showing your location and nearby recommended places"></div>
-            <div class="reco-list" id="recommendationList" aria-live="polite"></div>
-            <p class="reco-attribution hidden" id="recommendationAttribution"></p>
-          </section>
-
-          <aside class="stack">
-            <div class="callout join-callout">
-              <h3>Atelier Remote Link</h3>
-              <p>Connect for live pose guidance. Scan the QR code, or text the join code to the studio number.</p>
-              <img
-                class="join-qr"
-                src="./assets/join-qr.png"
-                alt="QR code to join the live pose session"
-                width="180"
-                height="180"
-              />
-              <p class="join-scan">Scan with your phone camera to join</p>
-              <div class="join-or">or</div>
-              <p class="join-text">
-                Text <strong>join 9CJQ7V</strong> to
-              </p>
-              <div class="phone">+1 (646) 391-6614</div>
-              <button class="btn btn-secondary" id="copyNumberBtn" type="button" style="background: transparent; color: #fff; border-color: rgba(255,255,255,0.25)">
-                Copy Studio Number
-              </button>
-            </div>
-            <a class="btn btn-primary btn-block" href="#gallery">Continue to My Gallery →</a>
-            <a class="btn btn-secondary btn-block" href="#upload">← Back to Upload</a>
-          </aside>
-        </div>
-      </main>
-
-      <!-- 5. MY GALLERY -->
+      <!-- 4. MY GALLERY -->
       <main id="page-gallery" class="page" data-page="gallery">
         <div class="gallery-head">
           <div>
@@ -232,22 +170,6 @@
 
         <div class="gallery-grid" id="galleryGrid"></div>
       </main>
-    </div>
-
-    <div class="modal-backdrop hidden" id="locationModal" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="locationModalTitle" style="display: none">
-      <div class="modal-card">
-        <span class="eyebrow">Location access</span>
-        <h2 id="locationModalTitle">Share your location?</h2>
-        <p>
-          To find nearby places, your reference photo will be analyzed by Grok and the location
-          you share will be used to search for matching photo spots.
-        </p>
-        <p class="modal-status" id="locationModalStatus" aria-live="polite"></p>
-        <div class="btn-row modal-actions">
-          <button class="btn btn-primary" id="allowLocationBtn" type="button">Allow location</button>
-          <button class="btn btn-secondary" id="denyLocationBtn" type="button">Not now</button>
-        </div>
-      </div>
     </div>
 
     <div class="toast" id="toast" role="status"></div>

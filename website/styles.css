@@ -9,7 +9,6 @@
   --accent: #e23d4d;
   --accent-deep: #c22938;
   --accent-soft: #ffe0e3;
-  --map: #f3ebe7;
   --shadow: 0 18px 40px rgba(80, 24, 32, 0.08);
   --radius: 18px;
   --nav-h: 72px;
@@ -312,7 +311,6 @@ img {
 .feature-card,
 .panel,
 .auth-card,
-.reco-card,
 .gallery-card,
 .upload-zone {
   background: var(--bg-elevated);
@@ -337,17 +335,6 @@ img {
 .feature-card p {
   margin: 0;
   color: var(--muted);
-}
-
-.feature-labels {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.chip-wip {
-  background: #fff0c2;
-  color: #714d00;
 }
 
 .stat-row {
@@ -482,9 +469,7 @@ img {
   align-items: start;
 }
 
-#page-location .split {
-  grid-template-columns: minmax(0, 1fr);
-}
+
 
 .panel {
   padding: 22px;
@@ -537,207 +522,6 @@ img {
 .stack {
   display: grid;
   gap: 14px;
-}
-
-.toggle {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 14px;
-  border-radius: 14px;
-  border: 1px solid var(--line);
-  background: var(--bg);
-}
-
-.toggle input {
-  margin-top: 4px;
-  accent-color: var(--accent);
-}
-
-.map-stage {
-  position: relative;
-  min-height: 420px;
-  margin-top: 22px;
-  border-radius: 26px;
-  overflow: hidden;
-  background:
-    linear-gradient(180deg, rgba(255, 244, 242, 0.15), rgba(255, 244, 242, 0.55)),
-    repeating-linear-gradient(90deg, transparent, transparent 28px, rgba(234, 214, 210, 0.45) 28px, rgba(234, 214, 210, 0.45) 29px),
-    repeating-linear-gradient(0deg, transparent, transparent 28px, rgba(234, 214, 210, 0.45) 28px, rgba(234, 214, 210, 0.45) 29px),
-    var(--map);
-}
-
-.map-pin {
-  position: absolute;
-  transform: translate(-50%, -100%);
-  max-width: min(220px, 42vw);
-  padding: 0.48rem 0.78rem;
-  border-radius: 999px;
-  background: var(--ink);
-  color: #fff;
-  font-size: 0.75rem;
-  font-weight: 700;
-  line-height: 1.25;
-  text-align: center;
-  white-space: normal;
-  z-index: calc(1 + var(--pin-order, 0));
-}
-
-.map-pin::after {
-  content: "";
-  position: absolute;
-  left: 50%;
-  bottom: -6px;
-  width: 10px;
-  height: 10px;
-  background: var(--ink);
-  transform: translateX(-50%) rotate(45deg);
-}
-
-.map-pin.you {
-  background: var(--accent);
-}
-
-.map-pin.you::after {
-  background: var(--accent);
-}
-
-.reco-list {
-  display: grid;
-  gap: 12px;
-  margin-top: 16px;
-}
-
-.reco-card {
-  padding: 22px 24px;
-  display: grid;
-  gap: 8px;
-  border-radius: 22px;
-}
-
-.reco-card .tag {
-  width: fit-content;
-  font-size: 0.72rem;
-  font-weight: 800;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--accent-deep);
-}
-
-.reco-card h3 {
-  margin: 0;
-  font-size: 1.15rem;
-}
-
-.reference-scene {
-  margin: 14px 0 0;
-  padding: 12px 14px;
-  border-radius: 12px;
-  background: var(--bg);
-  color: var(--ink);
-  font-weight: 700;
-}
-
-@media (max-width: 600px) {
-  .map-stage {
-    min-height: 320px;
-  }
-
-  .reco-card {
-    padding: 18px;
-  }
-}
-
-.location-status {
-  margin: 12px 0 0;
-  color: var(--muted);
-}
-
-.reco-description {
-  margin: 0;
-  color: var(--muted);
-  line-height: 1.5;
-}
-
-.map-link {
-  width: fit-content;
-  font-weight: 700;
-  color: var(--accent-deep);
-  text-decoration: none;
-}
-
-.map-link:hover {
-  text-decoration: underline;
-}
-
-.reco-attribution {
-  margin: 14px 0 0;
-  color: var(--muted);
-  font-size: 0.78rem;
-}
-
-.reco-meta {
-  color: var(--muted);
-  font-size: 0.9rem;
-}
-
-.callout {
-  background: #1a1214;
-  color: #fff;
-  border-radius: var(--radius);
-  padding: 22px;
-  display: grid;
-  gap: 12px;
-}
-
-.callout h3 {
-  margin: 0;
-}
-
-.callout p {
-  margin: 0;
-  color: rgba(255, 255, 255, 0.72);
-}
-
-.phone {
-  font-family: "Bricolage Grotesque", sans-serif;
-  font-size: 1.45rem;
-  font-weight: 800;
-}
-
-.join-callout {
-  justify-items: center;
-  text-align: center;
-}
-
-.join-qr {
-  width: 180px;
-  height: 180px;
-  object-fit: contain;
-  border-radius: 12px;
-  background: #fff;
-  padding: 10px;
-}
-
-.join-scan,
-.join-text {
-  margin: 0;
-  color: rgba(255, 255, 255, 0.8);
-  font-size: 0.95rem;
-}
-
-.join-text strong {
-  color: #fff;
-  font-family: "Bricolage Grotesque", sans-serif;
-  letter-spacing: 0.02em;
-}
-
-.join-or {
-  font-size: 0.8rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.45);
 }
 
 .gallery-head {

@@ -7,7 +7,6 @@ import { errorHandler } from "./middleware.js";
 import { getGalleryImage } from "./storage.js";
 import authRoutes from "./routes/auth.js";
 import galleryRoutes from "./routes/gallery.js";
-import { createLocationRouter } from "./routes/locations.js";
 
 const PORT = Number(process.env.PORT || 8787);
 
@@ -20,13 +19,31 @@ function corsOrigins() {
     .filter(Boolean);
 }
 
-export function createApp({ recommendLocations } = {}) {
+function isProjectVercelOrigin(origin) {
+  try {
+    const url = new URL(origin);
+    return url.protocol === "https:" &&
+      /^emoryhacks-[a-z0-9-]+-jorgevaldezzzs-projects\.vercel\.app$/i.test(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
+function corsOrigin(origin, callback) {
+  const allowed = corsOrigins();
+  if (allowed === true || (origin && (allowed.includes(origin) || isProjectVercelOrigin(origin)))) {
+    return callback(null, origin || true);
+  }
+  return callback(null, false);
+}
+
+export function createApp() {
   const app = express();
   app.set("trust proxy", 1);
 
   app.use(
     cors({
-      origin: corsOrigins(),
+      origin: corsOrigin,
       credentials: true,
     })
   );
@@ -38,7 +55,6 @@ export function createApp({ recommendLocations } = {}) {
 
   app.use("/api/auth", authRoutes);
   app.use("/api/gallery", galleryRoutes);
-  app.use("/api/locations", createLocationRouter({ recommend: recommendLocations }));
 
   // Gallery image bytes are stored in MongoDB with their metadata.
   app.get("/uploads/:id", async (req, res, next) => {

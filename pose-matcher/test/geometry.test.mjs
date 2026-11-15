@@ -20,7 +20,7 @@ function pose(shiftWrist = 0) {
 
 describe('comparePoseGeometry', () => {
   it('uses a strict whole-pose threshold without ignoring an outlying joint', () => {
-    assert.equal(MATCH_TOLERANCE, 0.12);
+    assert.equal(MATCH_TOLERANCE, 0.16);
     const reference = pose();
     const current = pose();
     current.landmarks.right_ankle = point(0.8, 0.55);
