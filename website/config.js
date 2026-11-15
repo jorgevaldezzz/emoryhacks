@@ -1,4 +1,4 @@
-// Point this at the API host (the separate server that holds SQLite + uploads).
+// Point this at the API host (the separate server connected to MongoDB Atlas).
 // On Vercel you can also set it in the browser console:
 //   localStorage.setItem("IMPHOTOGENIC_API_URL", "https://your-api-host.example.com")
 (function () {
