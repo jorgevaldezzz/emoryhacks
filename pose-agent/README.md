@@ -59,9 +59,12 @@ the skeleton of the reference image in `reference-images/` (or
 arms-out sample scaffold, and it does not wait for you to decide that you match.
 When the pose matches, it counts down and snaps: shutter flash, still on
 FaceTime, and a timestamped PNG in `captures/`. Say **cheese** only if you want
-the photo before that match. Coaching looks do not flash or save a still. Snaps
-keep the cropped camera aspect (no square stretch); the on-call preview
-letterboxes instead of smooshing the still.
+the photo before that match. About every four seconds a test still is written to
+`debug-skeletons/` with the caller's current skeleton drawn on it. Those files
+stay on disk and are not shown on the call. Coaching speaks a new joint
+correction only, and does not repeat a framing instruction. Snaps keep the
+cropped camera aspect (no square stretch); the on-call preview letterboxes
+instead of smooshing the still.
 
 ## Change the picture
 

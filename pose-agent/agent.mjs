@@ -3,14 +3,15 @@ import { AutoSubscribe, cli, defineAgent, llm, ServerOptions, voice } from '@liv
 import * as xai from '@livekit/agents-plugin-xai';
 import { LocalVideoTrack, TrackSource, VideoBufferType, VideoFrame, VideoSource } from '@livekit/rtc-node';
 import { encodeFramePng, saveFrameCapture, takePhotoFromFrame, watchCallerCamera } from './caller_vision.mjs';
-import { coachSpeech, nextCoachStep, photoAckSpeech } from './coach_flow.mjs';
+import { coachSpeech, nextCoachStep, noSpeech, photoAckSpeech, spokenCorrection } from './coach_flow.mjs';
+import { saveDebugSkeleton } from './debug_skeleton.mjs';
 import { drawFace, FPS, HEIGHT, WIDTH } from './face.mjs';
 import { cropFacetimeFrame, frameToAgentRgba } from './frame_display.mjs';
 import { greetOnBridgeReady } from './greet.mjs';
 import { loadReferenceImage } from './reference_pose.mjs';
 import { createPoseMatcher, extractPoseFromImage } from '../pose-matcher/src/index.mjs';
 
-const LOOK_EVERY_MS = 8_000;
+const LOOK_EVERY_MS = 4_000;
 const READY_TTL_MS = 2_500;
 const DIGIT_MS = 850;
 const SNAP_FRAMES = Math.round(FPS * 0.9);
@@ -25,7 +26,8 @@ Always speak English only. Never switch languages.
 You run this call. The caller is matching their body to the reference pose. Do not wait for them to ask for help, choose a correction, or decide that they are lined up.
 Each live frame is compared to the reference skeleton. The pipeline is coach, then match, then countdown, then snap.
 When you get a pose cue, say "Okay" then only that one body correction in one short sentence, then stop. Never add a correction that was not in the cue. Never say you are looking at, checking, reviewing, or going back to an image, photo, snapshot, or camera frame.
-When the live pose matches, the countdown and photo start on their own. Stay quiet during that countdown. Do not tell them to say cheese first. Do not ask if they want the photo.
+When the live pose matches, the countdown and photo start on their own. Do not speak during that countdown. Do not tell them to say cheese first. Do not ask if they want the photo.
+Only speak a new cue that names one joint, such as an elbow or a knee. If there is no new joint cue, produce no audio. Never tell them where to put their arms, legs, or feet.
 If they say cheese anyway, call take_photo immediately with no spoken preamble before the tool.
 After a real photo, acknowledge in one short sentence that you took it. If they want another, coach toward the reference pose again.
 If they ask for guidance, call guide_pose and say "Okay" then only that cue.
@@ -126,13 +128,20 @@ export default defineAgent({
           lastReady = { at: Date.now(), seen, ready, cue: result.feedback ?? null };
         }
         console.log(`[pose-matcher] coach status=${result.status}${result.score == null ? '' : ` score=${result.score}`}`);
-        return { status: result.status, feedback: result.feedback ?? null, seen, ready, cue: result.feedback ?? null };
+        return {
+          status: result.status,
+          feedback: result.feedback ?? null,
+          seen,
+          ready,
+          cue: result.feedback ?? null,
+          landmarks: result.landmarks ?? null,
+        };
       }
       if (!referenceImage) return { status: 'reference_missing', feedback: null, seen: false, ready: false, cue: null };
       const result = await analyzePose(cropped);
       lastReady = { at: Date.now(), seen: result.seen, ready: result.ready, cue: result.cue };
       const status = result.ready ? 'matched' : (result.seen ? 'adjust' : 'person_not_visible');
-      return { status, feedback: result.cue, seen: result.seen, ready: result.ready, cue: result.cue };
+      return { status, feedback: result.cue, seen: result.seen, ready: result.ready, cue: result.cue, landmarks: null };
     };
 
     /**
@@ -216,7 +225,7 @@ export default defineAgent({
         if (!result.savedPath) {
           return { ok: false, message: 'Speak English only. The shutter ran but the file did not save. Ask them to say cheese again.' };
         }
-        const tip = result.ready ? null : result.cue;
+        const tip = result.ready ? null : spokenCorrection(result.cue);
         return {
           ok: true,
           message: tip
@@ -242,7 +251,7 @@ export default defineAgent({
       // A spoken request may take another photo even while the auto loop is waiting out the last match.
       const step = nextCoachStep(judged, { autoSnapArmed: repeat || autoSnapArmed });
       if (step.action === 'snap') {
-        if (busy || countdownDigit) return { ok: true, message: 'Speak English only. Stay quiet. The countdown is already running.' };
+        if (busy || countdownDigit) return { ok: true, message: noSpeech };
         console.log('[caller-vision] reference matched — countdown and snap');
         const snap = await countdownAndSave({ holdStill: true, analyze: false });
         if (snap.ok) {
@@ -254,11 +263,12 @@ export default defineAgent({
       }
 
       autoSnapArmed = step.autoSnapArmed;
-      if (step.action !== 'coach' || !step.say) return { ok: true, message: 'Speak English only. Stay quiet.' };
-      if (!repeat && step.say === lastCue) return { ok: true, message: 'Speak English only. Stay quiet.' };
+      if (step.action !== 'coach' || !step.say) return { ok: true, message: noSpeech };
+      if (!repeat && step.say === lastCue) return { ok: true, message: noSpeech };
+      if (speak && (speaking || busy || countdownDigit)) return { ok: true, message: noSpeech };
       lastCue = step.say;
       const message = coachSpeech(step.say);
-      if (speak && !speaking && !busy && !countdownDigit) {
+      if (speak) {
         console.log(`[caller-vision] coach cue: ${step.say}`);
         session.generateReply({ instructions: message });
       }
@@ -267,7 +277,8 @@ export default defineAgent({
 
     /**
      * Silent auto look: compare the live frame to the reference skeleton.
-     * A match counts down and snaps. A gap is one spoken correction. No save.
+     * A match counts down and snaps. A new joint gap is one spoken correction.
+     * The still with the live skeleton is saved for testing and is not shown on the call.
      * @param {import('@livekit/rtc-node').VideoFrame} cropped
      */
     const silentLook = async (cropped) => {
@@ -276,7 +287,15 @@ export default defineAgent({
         return { ok: false, message: 'No reference pose loaded.' };
       }
       const judged = await judgeFrame(cropped);
-      if (judged.status === 'person_not_visible') console.log('[caller-vision] silent look: nobody in frame');
+      try {
+        const debugPath = await saveDebugSkeleton(cropped, judged.landmarks);
+        if (debugPath) console.log(`[debug-skeleton] saved ${debugPath}`);
+      } catch (error) {
+        console.warn('[debug-skeleton] could not save test frame', error instanceof Error ? error.message : error);
+      }
+      if (judged.status === 'person_not_visible' || judged.status === 'insufficient_visibility') {
+        console.log(`[caller-vision] silent look: ${judged.status} (not spoken)`);
+      }
       return followCoachStep(judged, { speak: true, repeat: false });
     };
 
@@ -360,15 +379,16 @@ export default defineAgent({
 
     const stopGreeting = greetOnBridgeReady(ctx.room, () => session.generateReply({ instructions: greeting }));
     const runLook = async () => {
-      if (busy || looking || speaking || countdownDigit) return false;
+      if (busy || looking || countdownDigit) return null;
       const cropped = latestCropped();
       if (!cropped) {
         if (!announcedWait) {
           announcedWait = true;
           console.log('[caller-vision] no caller camera frame yet');
         }
-        return false;
+        return null;
       }
+      const started = Date.now();
       looking = true;
       try {
         await silentLook(cropped);
@@ -377,12 +397,12 @@ export default defineAgent({
       } finally {
         looking = false;
       }
-      return true;
+      return Math.max(0, LOOK_EVERY_MS - (Date.now() - started));
     };
     const armLook = (delay) => {
       clearTimeout(lookTimer);
       lookTimer = setTimeout(() => {
-        runLook().then(compared => armLook(compared ? LOOK_EVERY_MS : 1_500));
+        runLook().then(wait => armLook(wait == null ? 1_500 : wait));
       }, delay);
     };
     // First comparison starts as soon as a frame is in, instead of waiting out the full interval.

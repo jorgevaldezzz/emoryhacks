@@ -31,15 +31,22 @@ describe('nextCoachStep', () => {
     assert.equal(again.action, 'snap');
   });
 
-  it('coaches visibility gaps instead of treating them as a match', () => {
+  it('does not speak a framing nag when the caller is already visible', () => {
     const step = nextCoachStep({
       status: 'insufficient_visibility',
       ready: true,
       feedback: 'I cannot compare that pose reliably yet. Keep your arms and legs in frame.',
     }, { autoSnapArmed: true });
-    assert.equal(step.action, 'coach');
-    assert.match(step.say, /arms and legs in frame/);
+    assert.equal(step.action, 'wait');
+    assert.equal(step.say, null);
     assert.equal(step.autoSnapArmed, true);
+
+    const paraphrased = nextCoachStep({
+      status: 'adjust',
+      feedback: 'Keep the feet and arms in frame.',
+    }, { autoSnapArmed: true });
+    assert.equal(paraphrased.action, 'wait');
+    assert.equal(paraphrased.say, null);
   });
 
   it('snaps a vision fallback only when that comparison says they match', () => {
@@ -82,5 +89,8 @@ describe('agent instructions', () => {
     assert.doesNotMatch(instructions, /ask if they want another/);
     assert.match(greeting, /count down and take the photo/);
     assert.doesNotMatch(greeting, /cheese/);
+    assert.doesNotMatch(instructions, /quiet|silence|Stay quiet|in frame/i);
+    assert.match(source, /LOOK_EVERY_MS = 4_000/);
+    assert.match(source, /saveDebugSkeleton/);
   });
 });
