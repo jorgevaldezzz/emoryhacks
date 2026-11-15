@@ -1,9 +1,12 @@
 import sharp from 'sharp';
 
-const WIDTH = 900;
-const HEIGHT = 640;
-const PAD = 72;
-const BODY_WIDTH = 620;
+// Compact stick figures — high-res canvases only inflate Grok vision latency.
+export const OVERLAY_WIDTH = 480;
+export const OVERLAY_HEIGHT = 360;
+const WIDTH = OVERLAY_WIDTH;
+const HEIGHT = OVERLAY_HEIGHT;
+const PAD = 40;
+const BODY_WIDTH = 330;
 const LABELS = [
   ['nose', 'head'], ['left_shoulder', 'L shoulder'], ['right_shoulder', 'R shoulder'],
   ['left_elbow', 'L elbow'], ['right_elbow', 'R elbow'], ['left_wrist', 'L wrist'],
@@ -45,13 +48,13 @@ export async function renderPoseOverlay(pose) {
   const visibleLabels = LABELS.filter(([key]) => points.has(key));
   const joints = visibleLabels.map(([key], index) => {
     const p = xy(points.get(key));
-    return `<g><circle cx="${p.x}" cy="${p.y}" r="13"/><text x="${p.x}" y="${p.y + 5}" text-anchor="middle" fill="#ffffff" stroke="none" font-size="13">${index + 1}</text></g>`;
+    return `<g><circle cx="${p.x}" cy="${p.y}" r="8"/><text x="${p.x}" y="${p.y + 3}" text-anchor="middle" fill="#ffffff" stroke="none" font-size="9">${index + 1}</text></g>`;
   }).join('');
   const legend = visibleLabels.map(([, label], index) => {
-    const y = 72 + index * 38;
-    return `<text x="650" y="${y}">${index + 1}. ${label}</text>`;
+    const y = 40 + index * 22;
+    return `<text x="345" y="${y}">${index + 1}. ${label}</text>`;
   }).join('');
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}" viewBox="0 0 ${WIDTH} ${HEIGHT}"><rect width="100%" height="100%" fill="#f6f7fb"/><g fill="none" stroke="#d946ef" stroke-width="8" stroke-linecap="round">${lines}</g><g fill="#171923" stroke="#f6f7fb" stroke-width="3" font-family="Arial,sans-serif" font-size="13" font-weight="700">${joints}</g><line x1="625" y1="30" x2="625" y2="610" stroke="#d4d7e0"/><g fill="#171923" font-family="Arial,sans-serif" font-size="20" font-weight="600">${legend}</g></svg>`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}" viewBox="0 0 ${WIDTH} ${HEIGHT}"><rect width="100%" height="100%" fill="#f6f7fb"/><g fill="none" stroke="#d946ef" stroke-width="5" stroke-linecap="round">${lines}</g><g fill="#171923" stroke="#f6f7fb" stroke-width="2" font-family="Arial,sans-serif" font-size="9" font-weight="700">${joints}</g><line x1="335" y1="16" x2="335" y2="344" stroke="#d4d7e0"/><g fill="#171923" font-family="Arial,sans-serif" font-size="12" font-weight="600">${legend}</g></svg>`;
   const png = await sharp(Buffer.from(svg)).png().toBuffer();
   return `data:image/png;base64,${png.toString('base64')}`;
 }

@@ -21,7 +21,7 @@ import { uploadCaptureToGallery } from './gallery_upload.mjs';
 import { greetOnBridgeReady } from './greet.mjs';
 import { createGrokPoseCoach } from './grok_pose_coach.mjs';
 import { loadReferenceImage } from './reference_pose.mjs';
-import { createPoseMatcher, MediaPipePoseWorker } from '../pose-matcher/src/index.mjs';
+import { comparePoseGeometry, createPoseMatcher, MediaPipePoseWorker } from '../pose-matcher/src/index.mjs';
 
 const LOOK_EVERY_MS = 4_000;
 const READY_TTL_MS = 2_500;
@@ -39,10 +39,10 @@ Left and right always mean the caller's own anatomical sides. Never substitute t
 You run this call. The caller is matching their body to the reference pose. Do not wait for them to ask for help, choose a correction, or decide that they are lined up.
 Each live frame is compared to the reference skeleton. The pipeline is coach, then match, then countdown, then snap.
 Pose corrections are spoken by the tools already. Never invent body corrections, never contradict a prior cue, and never tell them to put a hand down or up unless that exact line came from the tool.
-When a tool returns an instruction to produce no audio, produce no audio on that turn.
+When a tool result is exactly TOOL_SILENT, say nothing at all — do not narrate silence, do not say "no audio", do not apologize.
 When you get a pose cue from a tool message, say "Okay" then give only that one specific body correction in one short sentence, then stop. Include the direction and relative target from the cue. Never add a correction that was not in the cue. Never say you are looking at, checking, reviewing, or going back to an image, photo, snapshot, or camera frame.
 When the live pose matches, the countdown and photo start on their own. Do not speak during that countdown. Do not tell them to say cheese first. Do not ask if they want the photo.
-Only speak one detailed correction at a time. It may name the focus joint and a nearby target joint to make the placement clear. If there is no new joint cue, produce no audio.
+Only speak one detailed correction at a time. It may name the focus joint and a nearby target joint to make the placement clear. If there is no new joint cue, stay silent (TOOL_SILENT).
 If they say cheese anyway, call take_photo immediately with no spoken preamble before the tool.
 After a real photo, acknowledge in one short sentence that you took it. If they want another, coach toward the reference pose again.
 If they ask for guidance, call guide_pose. The tool speaks the cue; do not invent a joint correction. If the tool says the person or pose is not visible, give its brief step-into-frame instruction instead of inventing a joint correction.
@@ -66,6 +66,10 @@ export default defineAgent({
     const source = new VideoSource(WIDTH, HEIGHT);
     const track = LocalVideoTrack.createVideoTrack('agent-video', source);
     let tick = 0, speaking = false, busy = false, looking = false, announcedWait = false, autoSnapArmed = true;
+    /** Block coach cues and auto-snaps until the bridge greeting has finished playing. */
+    let introStarted = false;
+    let introSpoken = false;
+    let introDone = false;
     let coachMemory = emptyCoachMemory();
     let snapUntil = 0, replayUntil = 0, countdownDigit = 0, lookTimer;
     /** @type {{ at: number, seen: boolean, ready: boolean, cue: string | null } | null} */
@@ -111,13 +115,22 @@ export default defineAgent({
       }),
       tts: new xai.TTS({ voice: 'leo' }),
     });
-    session.on(voice.AgentSessionEventTypes.AgentStateChanged, event => { speaking = event.newState === 'speaking'; });
+    session.on(voice.AgentSessionEventTypes.AgentStateChanged, event => {
+      speaking = event.newState === 'speaking';
+      if (introStarted && speaking) introSpoken = true;
+      // Greeting finished: leave speaking after the intro turn started.
+      if (introStarted && introSpoken && !introDone && event.oldState === 'speaking' && event.newState !== 'speaking') {
+        introDone = true;
+        console.log('[caller-camera] introduction finished — coaching unlocked');
+      }
+    });
 
     // Load the development reference from POSE_REFERENCE_IMAGE or reference-images/.
     // MediaPipe extracts this reference pose; live frames use the same model and comparator.
     // Do NOT await model initialization before session.start — callers need an immediate greeting.
     // the Mac ends the call if the agent is silent for 10s after bridge_ready.
     let referenceState = 'loading';
+    let coachMode = 'geometry';
     let referenceUnavailableMessage = 'Speak English only. Say that a reference pose image must be loaded before you can guide them.';
     /** @type {ReturnType<typeof createPoseMatcher> | undefined} */
     let poseMatcher;
@@ -132,18 +145,29 @@ export default defineAgent({
           console.warn('[pose-matcher] no reference image in POSE_REFERENCE_IMAGE or reference-images/');
           return;
         }
-        const grokCompare = createGrokPoseCoach();
+        // Local geometry is the default coach — Grok vision was timing out mid-call.
+        // Set POSE_COACH=grok to force the slower vision path.
+        const useGrok = String(process.env.POSE_COACH || '').toLowerCase() === 'grok';
+        coachMode = useGrok ? 'grok' : 'geometry';
+        const grokCompare = useGrok ? createGrokPoseCoach() : null;
         const matcher = createPoseMatcher({
           extractPose: image => poseWorker.detect(image),
-          comparePose: args => grokCompare({
-            ...args,
-            excludeJoints: excludeJointsForCompare(coachMemory.spokenJoints),
-          }),
+          comparePose: args => {
+            // Geometry sticks on lastFocusJoint via shouldSpeakPoseCue. Do not rotate
+            // excludeJoints every look — that spam-cycled "raise foot/knee/wrist".
+            if (grokCompare) {
+              return grokCompare({
+                ...args,
+                excludeJoints: excludeJointsForCompare(coachMemory.spokenJoints),
+              });
+            }
+            return comparePoseGeometry(args);
+          },
         });
         await matcher.setReference(loaded.dataUrl);
         poseMatcher = matcher;
         referenceState = 'ready';
-        console.log(`[pose-matcher] reference pose ready from ${loaded.path}`);
+        console.log(`[pose-matcher] reference pose ready from ${loaded.path} (coach=${coachMode})`);
       } catch (error) {
         referenceState = 'missing';
         const detail = error instanceof Error ? error.message : String(error);
@@ -290,6 +314,8 @@ export default defineAgent({
      * @param {{ speak?: boolean, repeat?: boolean }} [options]
      */
     const followCoachStep = async (judged, { speak = false, repeat = false } = {}) => {
+      // Do not coach or auto-snap over the greeting.
+      if (!introDone) return { ok: true, message: noSpeech };
       if (judged.status === 'person_not_visible' || judged.status === 'insufficient_visibility') {
         // Keep last cue / spoken joints — a brief visibility miss used to reset
         // memory and re-speak the same wrist tip on the next adjust.
@@ -323,7 +349,9 @@ export default defineAgent({
 
       autoSnapArmed = step.autoSnapArmed;
       if (step.action !== 'coach' || !step.say) return { ok: true, message: noSpeech };
-      if (!shouldSpeakPoseCue(judged, coachMemory.lastFocusJoint, coachMemory.spokenJoints)) {
+      // Same joint → stay quiet until they change it (or match). Passing the spoken
+      // set here made geometry advance to a new body part every LOOK_EVERY_MS.
+      if (!shouldSpeakPoseCue(judged, coachMemory.lastFocusJoint)) {
         return { ok: true, message: noSpeech };
       }
       // Coalesced silent-look + guide_pose both get the same result; only one TTS.
@@ -397,11 +425,13 @@ export default defineAgent({
               }
               const cropped = latestCropped();
               if (!cropped) return { ok: false, message: 'No camera frame yet. Ask them to keep FaceTime Video on.' };
-              // Grok can take ~10–40s; fill the gap so FaceTime is not dead silent.
-              try {
-                session.say('Okay, one second.', { allowInterruptions: false });
-              } catch (error) {
-                console.warn('[caller-camera] guide filler failed', error instanceof Error ? error.message : error);
+              // Grok vision needs a filler; local geometry returns immediately.
+              if (coachMode === 'grok') {
+                try {
+                  session.say('Okay, one second.', { allowInterruptions: false });
+                } catch (error) {
+                  console.warn('[caller-camera] guide filler failed', error instanceof Error ? error.message : error);
+                }
               }
               let judged;
               busy = true;
@@ -421,6 +451,7 @@ export default defineAgent({
           take_photo: llm.tool({
             description: 'Count down and take the photo now. Call immediately when they say cheese. A reference-skeleton match already starts this countdown on its own, so do not call it just because they look close.',
             execute: async () => {
+              if (!introDone) return { ok: true, message: noSpeech };
               if (busy) return { ok: false, message: 'Already taking a photo. Wait a moment.' };
               const snap = await countdownAndSave({ holdStill: false });
               if (snap.ok) autoSnapArmed = false;
@@ -462,9 +493,19 @@ export default defineAgent({
       outputOptions: { audioEnabled: true, transcriptionEnabled: false },
     });
 
-    const stopGreeting = greetOnBridgeReady(ctx.room, () => session.generateReply({ instructions: greeting }));
+    const stopGreeting = greetOnBridgeReady(ctx.room, () => {
+      introStarted = true;
+      // Failsafe: if state events miss the end of the greeting, unlock coaching anyway.
+      setTimeout(() => {
+        if (!introDone) {
+          introDone = true;
+          console.log('[caller-camera] introduction timeout — coaching unlocked');
+        }
+      }, 8_000);
+      session.generateReply({ instructions: greeting });
+    });
     const runLook = async () => {
-      if (busy || looking || countdownDigit) return null;
+      if (!introDone || busy || looking || countdownDigit) return null;
       const cropped = latestCropped();
       if (!cropped) {
         if (!announcedWait) {
@@ -490,7 +531,7 @@ export default defineAgent({
         runLook().then(wait => armLook(wait == null ? 1_500 : wait));
       }, delay);
     };
-    // First comparison starts as soon as a frame is in, instead of waiting out the full interval.
+    // Poll for introDone; first real compare waits until the greeting has finished.
     armLook(1_200);
     ctx.addShutdownCallback(async () => stopGreeting());
   },
