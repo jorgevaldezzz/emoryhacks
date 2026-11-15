@@ -1,19 +1,20 @@
-import { comparePoses } from './compare.mjs';
+import { checkPoseVisibility } from './compare.mjs';
 
-/**
- * Build an opt-in pose check flow. frameProvider returns an image data URL/base64;
- * onResult can forward the compact result to Chert's voice session. No camera is
- * sampled until check() is called, or startPeriodic() is explicitly enabled.
- */
-export function createPoseMatcher({ extractPose, onResult = () => {}, intervalMs = 12_000, now = Date.now }) {
+/** Build a reference-pose comparison flow with injected local inference and coaching. */
+export function createPoseMatcher({ extractPose, comparePose, onResult = () => {}, intervalMs = 12_000, now = Date.now }) {
   if (typeof extractPose !== 'function') throw new TypeError('extractPose is required.');
+  if (typeof comparePose !== 'function') throw new TypeError('comparePose is required.');
   let reference = null;
   let busy = false;
   let timer = null;
 
   async function setReference(image) {
     const pose = await extractPose(image);
-    if (!pose?.personVisible) throw new Error('No clear person pose found in the reference photo.');
+    const visibility = checkPoseVisibility(pose, pose);
+    if (visibility.status === 'person_not_visible') throw new Error('MediaPipe could not detect a clear pose in the reference photo.');
+    if (visibility.status === 'insufficient_visibility') {
+      throw new Error('MediaPipe found a person but too few reference joints are visible. Choose a full-body pose photo.');
+    }
     reference = pose;
     return { ok: true, status: 'reference_ready', message: 'Reference pose is ready.' };
   }
@@ -24,8 +25,12 @@ export function createPoseMatcher({ extractPose, onResult = () => {}, intervalMs
     busy = true;
     try {
       const current = await extractPose(image);
+      const visibility = checkPoseVisibility(reference, current);
+      const comparison = visibility.status === 'pose_visible'
+        ? await comparePose({ reference, current })
+        : visibility;
       const result = {
-        ...comparePoses(reference, current),
+        ...comparison,
         landmarks: current?.landmarks ?? {},
         checkedAt: new Date(now()).toISOString(),
       };

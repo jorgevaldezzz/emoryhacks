@@ -1,9 +1,14 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { describe, it } from 'node:test';
-import { nextCoachStep } from '../coach_flow.mjs';
+import { nextCoachStep, shouldSpeakPoseCue } from '../coach_flow.mjs';
 
 describe('nextCoachStep', () => {
+  it('suppresses a repeated focus joint until attention moves to another joint', () => {
+    assert.equal(shouldSpeakPoseCue({ focusJoint: 'left_wrist' }, 'left_wrist'), false);
+    assert.equal(shouldSpeakPoseCue({ focusJoint: 'left_elbow' }, 'left_wrist'), true);
+    assert.equal(shouldSpeakPoseCue({ focusJoint: 'left_wrist' }, 'left_wrist'), false);
+  });
   it('snaps on the first skeleton match and does not snap again until they leave it', () => {
     const matched = {
       status: 'matched',
@@ -35,7 +40,7 @@ describe('nextCoachStep', () => {
     const step = nextCoachStep({
       status: 'insufficient_visibility',
       ready: true,
-      feedback: 'I cannot compare that pose reliably yet. Keep your arms and legs in frame.',
+      feedback: 'I cannot compare that pose reliably yet. Step into frame with your arms and legs visible.',
     }, { autoSnapArmed: true });
     assert.equal(step.action, 'wait');
     assert.equal(step.say, null);
@@ -49,7 +54,7 @@ describe('nextCoachStep', () => {
     assert.equal(paraphrased.say, null);
   });
 
-  it('snaps a vision fallback only when that comparison says they match', () => {
+  it('uses comparison results to coach or snap only on a match', () => {
     const coaching = nextCoachStep(
       { ready: false, cue: 'Raise your left elbow higher.' },
       { autoSnapArmed: true },

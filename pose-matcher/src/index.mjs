@@ -1,3 +1,3 @@
-export { comparePoses, poseSummary } from './compare.mjs';
-export { extractPoseFromImage, JOINTS, normalizePoseResult } from './extract.mjs';
+export { checkPoseVisibility } from './compare.mjs';
+export { MediaPipePoseWorker } from './mediapipe.mjs';
 export { createPoseMatcher } from './session.mjs';

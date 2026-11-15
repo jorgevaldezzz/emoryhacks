@@ -33,6 +33,11 @@ export function spokenCorrection(text) {
 /** Tool result when the caller should hear nothing. Not a line to read aloud. */
 export const noSpeech = 'Instruction to you, not a line for the caller: produce no audio on this turn.';
 
+/** Suppress repeated automatic corrections for the same focus joint. */
+export function shouldSpeakPoseCue(result, lastFocusJoint) {
+  return !result?.focusJoint || result.focusJoint !== lastFocusJoint;
+}
+
 /**
  * Decide the next step from a live-frame comparison against the reference skeleton.
  * A match snaps once. The next mismatch arms another snap. The caller is not asked
@@ -71,7 +76,7 @@ export function nextCoachStep(result, state = {}) {
  * @returns {string}
  */
 export function coachSpeech(cue) {
-  return `Speak English only. Say "Okay," then only this joint correction in one short sentence, then stop. Do not add framing, feet, or where they should stand. Do not repeat a correction you already gave. Never say you looked at an image or photo: ${cue}`;
+  return `Speak English only. Say "Okay," then only this specific body correction in one short sentence, then stop. Include its direction and relative target. Do not add another correction or a framing instruction. Never say you looked at an image or photo: ${cue}`;
 }
 
 /**
