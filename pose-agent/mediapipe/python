@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# NixOS: pip wheels need an FHS userland. steam-run provides libstdc++/zlib/xcb.
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")" && pwd)"
+exec steam-run "$ROOT/.venv/bin/python" "$@"
