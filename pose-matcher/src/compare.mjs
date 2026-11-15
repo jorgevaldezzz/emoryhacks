@@ -1,5 +1,3 @@
-import { JOINTS } from './extract.mjs';
-
 const CHAINS = [
   ['left_shoulder', 'left_elbow', 'left_wrist', 'left elbow', 'Bend your left elbow more.', 'Straighten your left arm a bit.'],
   ['right_shoulder', 'right_elbow', 'right_wrist', 'right elbow', 'Bend your right elbow more.', 'Straighten your right arm a bit.'],
@@ -26,7 +24,7 @@ function cueForAngle(referenceDegrees, currentDegrees, bendCue, straightenCue) {
 
 /** Compare joint angles, which are less sensitive to camera distance and framing. */
 export function comparePoses(reference, current, { threshold = 18, minCoverage = 0.55 } = {}) {
-  if (!reference?.personVisible || !current?.personVisible) return { ok: false, status: 'person_not_visible', score: null, issues: [], coverage: 0, feedback: 'I cannot see enough of you to check the pose. Step back so your body is in frame.' };
+  if (!reference?.personVisible || !current?.personVisible) return { ok: false, status: 'person_not_visible', score: null, issues: [], coverage: 0, feedback: 'I cannot see you yet. Step into the camera frame so I can see your full body.' };
   const errors = [];
   for (const [a, b, c, label, bendCue, straightenCue] of CHAINS) {
     const points = [usable(reference, a), usable(reference, b), usable(reference, c)];
@@ -42,15 +40,11 @@ export function comparePoses(reference, current, { threshold = 18, minCoverage =
     });
   }
   const coverage = errors.length / CHAINS.length;
-  if (coverage < minCoverage) return { ok: false, status: 'insufficient_visibility', score: null, issues: [], coverage, feedback: 'I cannot compare that pose reliably yet. Keep your arms and legs in frame.' };
+  if (coverage < minCoverage) return { ok: false, status: 'insufficient_visibility', score: null, issues: [], coverage, feedback: 'I cannot compare that pose reliably yet. Step into frame with your arms and legs visible.' };
   errors.sort((a, b) => b.degrees - a.degrees);
   const score = Math.round(Math.max(0, 100 - errors.reduce((sum, item) => sum + item.degrees, 0) / errors.length * 1.5));
   const issues = errors.filter(item => item.degrees > threshold).slice(0, 2);
   if (!issues.length) return { ok: true, status: 'matched', score, issues: [], coverage, feedback: 'Your pose is close to the reference. Hold still for the photo.' };
   const directions = issues.map(item => item.cue).join(' ');
   return { ok: true, status: 'adjust', score, issues, coverage, feedback: directions };
-}
-/** Keep only the supported landmark keys in a payload sent to a voice agent. */
-export function poseSummary(pose) {
-  return Object.fromEntries(JOINTS.filter(key => pose?.landmarks?.[key]).map(key => [key, pose.landmarks[key]]));
 }

@@ -8,8 +8,9 @@
   },
   "scripts": {
     "start": "node --env-file=.env.local agent.mjs start",
-    "check": "node --check agent.mjs && node --check coach_flow.mjs && node --check debug_skeleton.mjs && node --check face.mjs && node --check greet.mjs && node --check caller_vision.mjs && node --check chert_send.mjs && node --check frame_display.mjs && node --check reference_pose.mjs && node --check skeleton.mjs",
+    "check": "node --check agent.mjs && node --check coach_flow.mjs && node --check debug_skeleton.mjs && node --check face.mjs && node --check greet.mjs && node --check caller_camera.mjs && node --check chert_send.mjs && node --check frame_display.mjs && node --check reference_pose.mjs",
     "test": "node --test test/*.test.mjs",
+    "reference-skeleton": "node generate_reference_skeleton.mjs",
     "help": "node agent.mjs --help"
   },
   "dependencies": {

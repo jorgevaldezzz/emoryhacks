@@ -10,18 +10,22 @@ or later, Node 24 or Node 26 is required.
    ```sh
    npm install
    ```
-2. Create your private env file, then replace each `YOUR_` placeholder in it:
+2. Install Python dependencies and Google's Pose Landmarker model:
+   ```sh
+   python3 mediapipe/setup_mediapipe.py
+   ```
+3. Create your private env file, then replace each `YOUR_` placeholder in it:
    ```sh
    cp .env.example .env.local && chmod 600 .env.local
    ```
    The three LiveKit values come from one LiveKit Cloud project (Settings, API
-   keys). The OpenAI key needs Realtime access and credits. Set `AGENT_NAME` to a
+   keys). The xAI key is used for Realtime voice. Set `AGENT_NAME` to a
    name no other team uses.
-3. Terminal 1, your agent:
+4. Terminal 1, your agent:
    ```sh
    npm start
    ```
-4. Terminal 2, in this same folder:
+5. Terminal 2, in this same folder:
    ```sh
    chert login     # once per computer
    chert dev
@@ -51,12 +55,13 @@ publishes an audio track, and shows video **only from that same participant**.
 - Two participants publishing audio ends the call.
 - Video from a participant that does not speak is not shown.
 
-## Caller vision
+## Pose coaching
 
 You see the animated AI face on FaceTime. The call compares each live frame to
-the skeleton of the reference image in `reference-images/` (or
-`POSE_REFERENCE_IMAGE`) and coaches the one difference. It does not use the old
-arms-out sample scaffold, and it does not wait for you to decide that you match.
+the reference image in `reference-images/` (or `POSE_REFERENCE_IMAGE`) using
+Google MediaPipe Pose Landmarker. Both the reference and caller frames are
+processed locally by a persistent Python sidecar; xAI is used for realtime
+voice only. The agent coaches one difference.
 When the pose matches, it counts down and snaps: shutter flash, still on
 FaceTime, and a timestamped PNG in `captures/`. Say **cheese** only if you want
 the photo before that match. About every four seconds a test still is written to
@@ -101,17 +106,30 @@ FaceTime call by Chert yet: watch the media line in `chert dev` on your first ca
 
 ## Reference pose coaching
 
-Put a development reference photo in `reference-images/` (gitignored), or set an
+Install Python dependencies and Google's Pose Landmarker model once from this
+directory:
+
+```sh
+python3 mediapipe/setup_mediapipe.py
+```
+
+Put a development reference photo in `reference-images/`, or set an
 absolute path in `.env.local`:
 
 ```sh
 POSE_REFERENCE_IMAGE=/absolute/path/to/reference.jpg
 ```
 
-Restart both `npm start` and `chert dev`. Each live frame is compared to that
-photo's skeleton (`../pose-matcher/`). The agent speaks one body correction,
-then counts down and snaps when the angles match. `guide_pose` and
-`match_reference_pose` use the same comparison. Vision is only the fallback
-when landmark extraction is unavailable. Vision and landmark extraction use
-`store: false`. The comparison is approximate when joints are occluded or
-left/right is ambiguous. See [`../pose-matcher/README.md`](../pose-matcher/README.md).
+Restart both `npm start` and `chert dev`. MediaPipe extracts landmarks from that
+photo and each caller frame; the matcher compares elbow and knee angles. The
+agent speaks one body correction, then counts down and snaps when the angles
+match. `guide_pose` and `match_reference_pose` use the same comparison. If the
+person or enough joints cannot be detected, the agent asks the caller to step
+into frame. `debug-skeletons/` contains local stills with the extracted caller
+pose; it is not published to the call. The comparison is approximate when
+joints are occluded or left/right is ambiguous. See
+[`../pose-matcher/README.md`](../pose-matcher/README.md).
+
+To regenerate an overlay for the configured reference photo, run
+`npm run reference-skeleton` from this directory. Pass an output path as the
+first argument to save somewhere else.

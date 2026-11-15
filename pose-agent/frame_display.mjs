@@ -116,7 +116,7 @@ export function frameToAgentRgba(frame, width, height, options = {}) {
 }
 
 /**
- * Build a cropped VideoFrame suitable for vision encode / save.
+ * Build a cropped VideoFrame suitable for pose inference input / save.
  * Keeps the cropped pixel aspect — callers must not stretch it to a square.
  * @param {import('@livekit/rtc-node').VideoFrame} frame
  * @param {{ margins?: typeof FACETIME_CROP }} [options]

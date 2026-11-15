@@ -1,7 +1,7 @@
 import { comparePoses } from './compare.mjs';
 
 /**
- * Build an opt-in pose check flow. frameProvider returns an image data URL/base64;
+ * Build a pose check flow. frameProvider returns an image data URL/base64;
  * onResult can forward the compact result to Chert's voice session. No camera is
  * sampled until check() is called, or startPeriodic() is explicitly enabled.
  */
@@ -13,7 +13,10 @@ export function createPoseMatcher({ extractPose, onResult = () => {}, intervalMs
 
   async function setReference(image) {
     const pose = await extractPose(image);
-    if (!pose?.personVisible) throw new Error('No clear person pose found in the reference photo.');
+    if (!pose?.personVisible) throw new Error('MediaPipe could not detect a clear pose in the reference photo.');
+    if (comparePoses(pose, pose).status === 'insufficient_visibility') {
+      throw new Error('MediaPipe found a person but too few reference joints are visible. Choose a full-body pose photo.');
+    }
     reference = pose;
     return { ok: true, status: 'reference_ready', message: 'Reference pose is ready.' };
   }
