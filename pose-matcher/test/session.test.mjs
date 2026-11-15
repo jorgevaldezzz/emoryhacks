@@ -12,14 +12,32 @@ const clearPose = { personVisible: true, landmarks: {
 
 describe('createPoseMatcher', () => {
   it('rejects reference images with no detected person', async () => {
-    const matcher = createPoseMatcher({ extractPose: async () => ({ personVisible: false, landmarks: {} }) });
+    const matcher = createPoseMatcher({ extractPose: async () => ({ personVisible: false, landmarks: {} }), comparePose: async () => ({ status: 'matched' }) });
     await assert.rejects(matcher.setReference('blank'), /MediaPipe could not detect a clear pose/);
   });
 
   it('rejects reference poses with too few confident limb joints', async () => {
     const pose = structuredClone(clearPose);
     for (const name of ['left_elbow', 'right_elbow', 'left_knee', 'right_knee']) pose.landmarks[name].confidence = 0.1;
-    const matcher = createPoseMatcher({ extractPose: async () => pose });
+    const matcher = createPoseMatcher({ extractPose: async () => pose, comparePose: async () => ({ status: 'matched' }) });
     await assert.rejects(matcher.setReference('occluded'), /too few reference joints are visible/);
+  });
+
+  it('skips Grok when the live person is missing and compares visible pose pairs', async () => {
+    let current = { personVisible: false, landmarks: {} };
+    let comparisons = 0;
+    const matcher = createPoseMatcher({
+      extractPose: async image => image === 'reference' ? clearPose : current,
+      comparePose: async () => { comparisons += 1; return { ok: true, status: 'adjust', focusJoint: 'left_wrist', feedback: 'Move your left wrist beside your temple.' }; },
+    });
+    await matcher.setReference('reference');
+    const hidden = await matcher.check('current');
+    assert.equal(hidden.status, 'person_not_visible');
+    assert.equal(comparisons, 0);
+    current = clearPose;
+    const visible = await matcher.check('current');
+    assert.equal(visible.status, 'adjust');
+    assert.equal(visible.focusJoint, 'left_wrist');
+    assert.equal(comparisons, 1);
   });
 });

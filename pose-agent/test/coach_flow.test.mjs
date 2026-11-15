@@ -1,9 +1,14 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { describe, it } from 'node:test';
-import { nextCoachStep } from '../coach_flow.mjs';
+import { nextCoachStep, shouldSpeakPoseCue } from '../coach_flow.mjs';
 
 describe('nextCoachStep', () => {
+  it('suppresses a repeated focus joint until attention moves to another joint', () => {
+    assert.equal(shouldSpeakPoseCue({ focusJoint: 'left_wrist' }, 'left_wrist'), false);
+    assert.equal(shouldSpeakPoseCue({ focusJoint: 'left_elbow' }, 'left_wrist'), true);
+    assert.equal(shouldSpeakPoseCue({ focusJoint: 'left_wrist' }, 'left_wrist'), false);
+  });
   it('snaps on the first skeleton match and does not snap again until they leave it', () => {
     const matched = {
       status: 'matched',

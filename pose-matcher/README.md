@@ -23,19 +23,22 @@ URL or base64 string to `detect()`.
 import { createPoseMatcher, MediaPipePoseWorker } from './src/index.mjs';
 
 const worker = new MediaPipePoseWorker();
-const matcher = createPoseMatcher({ extractPose: image => worker.detect(image) });
+// The application injects its Grok or other pose-pair comparison adapter here.
+const comparePose = async posePair => poseComparisonService.compare(posePair);
+const matcher = createPoseMatcher({
+  extractPose: image => worker.detect(image),
+  comparePose,
+});
 await matcher.setReference(referenceImageDataUrl);
 const result = await matcher.check(callerImageDataUrl);
 await worker.close();
 ```
 
-Both the reference and caller images go through the same local model. When no
-person is detected or too few limb landmarks are visible, the comparison asks
-the caller to get into frame instead of inventing a correction. Comparison uses
-elbow and knee angles, which are less sensitive to camera distance than raw
-pixel positions. It requires at least 55% of the four limb chains to be visible,
-ignores landmarks with confidence below 0.35, and reports at most two largest
-mismatches. Single-image pose estimates remain approximate when joints are
+Both the reference and caller images go through the same local model. The
+matcher rejects no-person and low-confidence frames locally before invoking
+`comparePose`. The Chert agent provides a Grok adapter that compares neutral
+MediaPipe skeleton overlays, not the original photos, and returns one focused
+correction or a match result. Comparison can remain uncertain when joints are
 occluded or left/right is ambiguous.
 
 Run the package checks with `npm test` and `npm run check`.

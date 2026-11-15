@@ -60,8 +60,10 @@ publishes an audio track, and shows video **only from that same participant**.
 You see the animated AI face on FaceTime. The call compares each live frame to
 the reference image in `reference-images/` (or `POSE_REFERENCE_IMAGE`) using
 Google MediaPipe Pose Landmarker. Both the reference and caller frames are
-processed locally by a persistent Python sidecar; xAI is used for realtime
-voice only. The agent coaches one difference.
+processed locally by a persistent Python sidecar. Grok compares labeled
+skeleton-only drawings every four seconds; the original photos stay local. Chert
+speaks one detailed correction for the largest visible difference and suppresses
+repeats for the same focus joint. xAI Realtime continues to provide the voice.
 When the pose matches, it counts down and snaps: shutter flash, still on
 FaceTime, and a timestamped PNG in `captures/`. Say **cheese** only if you want
 the photo before that match. About every four seconds a test still is written to
@@ -121,12 +123,13 @@ POSE_REFERENCE_IMAGE=/absolute/path/to/reference.jpg
 ```
 
 Restart both `npm start` and `chert dev`. MediaPipe extracts landmarks from that
-photo and each caller frame; the matcher compares elbow and knee angles. The
-agent speaks one body correction, then counts down and snaps when the angles
-match. `guide_pose` and `match_reference_pose` use the same comparison. If the
+photo and each caller frame. Grok compares the resulting joint overlays and
+returns a focused correction or match result. The agent speaks one body
+correction, then counts down and snaps when the poses match. `guide_pose` and
+`match_reference_pose` use the same comparison. If the
 person or enough joints cannot be detected, the agent asks the caller to step
 into frame. `debug-skeletons/` contains local stills with the extracted caller
-pose; it is not published to the call. The comparison is approximate when
+pose; it is not published to the call. The comparison may be uncertain when
 joints are occluded or left/right is ambiguous. See
 [`../pose-matcher/README.md`](../pose-matcher/README.md).
 
