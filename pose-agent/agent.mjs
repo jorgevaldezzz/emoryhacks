@@ -1,4 +1,5 @@
 import { fileURLToPath } from 'node:url';
+import sharp from 'sharp';
 import { AutoSubscribe, cli, defineAgent, llm, ServerOptions, voice } from '@livekit/agents';
 import * as xai from '@livekit/agents-plugin-xai';
 import { LocalVideoTrack, TrackSource, VideoBufferType, VideoFrame, VideoSource } from '@livekit/rtc-node';
@@ -28,6 +29,7 @@ const READY_TTL_MS = 2_500;
 const DIGIT_MS = 850;
 const SNAP_FRAMES = Math.round(FPS * 0.9);
 const REPLAY_FRAMES = Math.round(FPS * 4);
+const REFERENCE_PREVIEW_FRAMES = Math.round(FPS * 5);
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -50,7 +52,7 @@ If they ask for a score, call match_reference_pose when available and say only i
 Never invent a pose correction.
 Never mention files, messaging, or skeletons.
 Be clear that you are an AI.`;
-const greeting = 'Greet in one short English sentence: say you will coach their body into the reference pose, and when it matches you will count down and take the photo.';
+const greeting = 'Greet in one short English sentence: point out the reference pose now shown on screen, say you will coach their body to match it, and when it matches you will count down and take the photo.';
 
 export default defineAgent({
   entry: async ctx => {
@@ -144,6 +146,17 @@ export default defineAgent({
           referenceUnavailableMessage = 'Speak English only. Say that a reference pose image must be loaded before you can guide them.';
           console.warn('[pose-matcher] no reference image in POSE_REFERENCE_IMAGE or reference-images/');
           return;
+        }
+        // Show the target pose on the agent's video track at call start so the
+        // caller can see which pose the automatic coach is matching.
+        try {
+          const imageBytes = Buffer.from(loaded.dataUrl.split(',')[1], 'base64');
+          replayPixels = new Uint8Array(await sharp(imageBytes)
+            .resize(WIDTH, HEIGHT, { fit: 'contain', background: '#102834' })
+            .ensureAlpha().raw().toBuffer());
+          replayUntil = tick + REFERENCE_PREVIEW_FRAMES;
+        } catch (error) {
+          console.warn('[pose-matcher] could not render reference preview', error instanceof Error ? error.message : error);
         }
         // Local geometry is the default coach — Grok vision was timing out mid-call.
         // Set POSE_COACH=grok to force the slower vision path.

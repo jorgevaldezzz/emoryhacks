@@ -2,7 +2,7 @@
 
 const MIN_CONFIDENCE = 0.35;
 /** Max normalized joint error still counted as a match. */
-export const MATCH_TOLERANCE = 0.16;
+export const MATCH_TOLERANCE = 0.12;
 /**
  * Stance can be "good enough" to start arm tips before feet are photo-perfect.
  */
@@ -159,8 +159,7 @@ function errorSummary(keys, ref, cur, excluded) {
   if (!errors.length) return { mean: 0, max: 0, count: 0 };
   // Ignore one noisy landmark (commonly a foot) while still requiring the rest
   // of the visible pose to line up. A large second miss still prevents a snap.
-  const trimmed = errors.length >= 5 ? errors.slice(0, -1) : errors;
-  return { mean: trimmed.reduce((sum, value) => sum + value, 0) / trimmed.length, max: errors.at(-1), count: errors.length };
+  return { mean: errors.reduce((sum, value) => sum + value, 0) / errors.length, max: errors.at(-1), count: errors.length };
 }
 
 /**
@@ -189,7 +188,7 @@ export function comparePoseGeometry({ reference, current, excludeJoints = [] } =
   const summary = errorSummary(JOINTS, ref, cur, excluded);
   const upperOk = !upper || upper.error <= MATCH_TOLERANCE;
   const lowerOk = !lower || lower.error <= MATCH_TOLERANCE;
-  const matched = summary.mean <= MATCH_TOLERANCE && (summary.max <= 0.35 || summary.count < 5);
+  const matched = summary.mean <= MATCH_TOLERANCE && (summary.max <= 0.28 || summary.count < 5);
   if (matched) {
     return {
       ok: true,

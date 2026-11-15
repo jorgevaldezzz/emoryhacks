@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { comparePoseGeometry } from '../src/geometry.mjs';
+import { comparePoseGeometry, cueForDelta, MATCH_TOLERANCE } from '../src/geometry.mjs';
 
 const point = (x, y, confidence = 0.95) => ({ x, y, confidence });
 function pose(shiftWrist = 0) {
@@ -19,6 +19,26 @@ function pose(shiftWrist = 0) {
 }
 
 describe('comparePoseGeometry', () => {
+  it('uses a strict whole-pose threshold without ignoring an outlying joint', () => {
+    assert.equal(MATCH_TOLERANCE, 0.12);
+    const reference = pose();
+    const current = pose();
+    current.landmarks.right_ankle = point(0.8, 0.55);
+    assert.equal(comparePoseGeometry({ reference, current }).status, 'adjust');
+  });
+
+  it('never tells a caller to lift a foot to fix image-space leg error', () => {
+    const reference = pose();
+    const current = pose();
+    current.landmarks.left_ankle = point(0.35, 0.6);
+    const result = comparePoseGeometry({ reference, current });
+    assert.doesNotMatch(result.feedback, /lift|ceiling|sky/i);
+    assert.match(cueForDelta('left_ankle', 0, 0.3, {
+      left_hip: { x: 0, y: 0 }, left_knee: { x: 0, y: 0.5 }, left_ankle: { x: 0, y: 1 },
+    }, {
+      left_hip: { x: 0, y: 0 }, left_knee: { x: 0, y: 0.5 }, left_ankle: { x: 0, y: 1 },
+    }), /foot on the floor/i);
+  });
   it('returns matched when live joints already align with the reference', () => {
     const result = comparePoseGeometry({ reference: pose(), current: pose() });
     assert.equal(result.status, 'matched');
