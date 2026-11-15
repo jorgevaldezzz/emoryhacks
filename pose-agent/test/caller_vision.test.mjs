@@ -77,7 +77,10 @@ describe('buildVisionPrompt', () => {
     assert.match(prompt, /TARGET reference pose/);
     assert.match(prompt, /arms-out scaffold/i);
     assert.match(prompt, /"ready"/);
+    assert.match(prompt, /Hold still/);
     assert.match(prompt, /Never mention photos/);
+    assert.match(prompt, /Do not tell them to say cheese/);
+    assert.doesNotMatch(prompt, /say cheese when you want/i);
     assert.doesNotMatch(prompt, /Standing portrait facing the camera/);
   });
 

@@ -42,13 +42,13 @@ export function comparePoses(reference, current, { threshold = 18, minCoverage =
     });
   }
   const coverage = errors.length / CHAINS.length;
-  if (coverage < minCoverage) return { ok: false, status: 'insufficient_visibility', score: null, issues: [], coverage, feedback: 'I cannot compare that pose reliably yet. Make sure your arms and legs are visible in the camera.' };
+  if (coverage < minCoverage) return { ok: false, status: 'insufficient_visibility', score: null, issues: [], coverage, feedback: 'I cannot compare that pose reliably yet. Keep your arms and legs in frame.' };
   errors.sort((a, b) => b.degrees - a.degrees);
   const score = Math.round(Math.max(0, 100 - errors.reduce((sum, item) => sum + item.degrees, 0) / errors.length * 1.5));
   const issues = errors.filter(item => item.degrees > threshold).slice(0, 2);
   if (!issues.length) return { ok: true, status: 'matched', score, issues: [], coverage, feedback: 'Your pose is close to the reference. Hold still for the photo.' };
   const directions = issues.map(item => item.cue).join(' ');
-  return { ok: true, status: 'adjust', score, issues, coverage, feedback: `${directions} Then ask me to check again.` };
+  return { ok: true, status: 'adjust', score, issues, coverage, feedback: directions };
 }
 /** Keep only the supported landmark keys in a payload sent to a voice agent. */
 export function poseSummary(pose) {
