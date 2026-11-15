@@ -1,8 +1,14 @@
 import { Router } from "express";
 import multer from "multer";
-import { findUserByEmail, findUserById, listGalleryForUser } from "../db.js";
+import {
+  countGalleryForUser,
+  findUserByEmail,
+  findUserById,
+  listGalleryForUser,
+} from "../db.js";
 import { requireAuth, requireIngestSecret } from "../middleware.js";
-import { removeGalleryImage, saveGalleryImage } from "../storage.js";
+import { galleryMaxItems, removeGalleryImage, saveGalleryImage } from "../storage.js";
+import { imageUrlFor } from "../object-store.js";
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -13,13 +19,12 @@ const router = Router();
 
 /**
  * @param {import('express').Request} req
- * @param {{ id: string, filename: string, originalName?: string | null, note?: string | null, source: string, createdAt: string }} item
+ * @param {Record<string, unknown>} item
  */
 function withUrl(req, item) {
-  const base = `${req.protocol}://${req.get("host")}`;
   return {
     ...item,
-    url: `${base}/uploads/${encodeURIComponent(item.filename)}`,
+    url: imageUrlFor(req, item),
   };
 }
 
@@ -54,25 +59,36 @@ function readImagePayload(req) {
   return null;
 }
 
-router.get("/", requireAuth, (req, res) => {
-  const items = listGalleryForUser(req.user.id).map((item) => withUrl(req, item));
-  res.json({ items });
+/** Every query filters on req.userId — never accepts a userId from the client. */
+router.get("/", requireAuth, async (req, res, next) => {
+  try {
+    const items = await listGalleryForUser(req.userId);
+    const count = await countGalleryForUser(req.userId);
+    res.json({
+      items: items.map((item) => withUrl(req, item)),
+      count,
+      maxItems: galleryMaxItems(),
+    });
+  } catch (err) {
+    next(err);
+  }
 });
 
-router.post("/", requireAuth, upload.single("image"), (req, res, next) => {
+router.post("/", requireAuth, upload.single("image"), async (req, res, next) => {
   try {
     const payload = readImagePayload(req);
     if (!payload) {
       return res.status(400).json({ error: "Provide an image file or imageBase64" });
     }
 
-    const item = saveGalleryImage({
-      userId: req.user.id,
+    const item = await saveGalleryImage({
+      userId: req.userId,
       buffer: payload.buffer,
       mime: payload.mime,
       originalName: payload.originalName,
       note: req.body?.note || null,
       source: req.body?.source || "upload",
+      kind: "reference",
     });
     res.status(201).json({ item: withUrl(req, item) });
   } catch (err) {
@@ -80,9 +96,10 @@ router.post("/", requireAuth, upload.single("image"), (req, res, next) => {
   }
 });
 
-router.delete("/:id", requireAuth, (req, res, next) => {
+router.delete("/:id", requireAuth, async (req, res, next) => {
   try {
-    const removed = removeGalleryImage(req.params.id, req.user.id);
+    // Filtering on userId means someone else's id returns 404, not their data.
+    const removed = await removeGalleryImage(req.params.id, req.userId);
     if (!removed) {
       return res.status(404).json({ error: "Gallery item not found" });
     }
@@ -97,14 +114,14 @@ router.delete("/:id", requireAuth, (req, res, next) => {
  * Auth: X-Ingest-Secret matching GALLERY_INGEST_SECRET.
  * Identify the account with `email` (preferred) or `userId`.
  */
-router.post("/chert", requireIngestSecret, upload.single("image"), (req, res, next) => {
+router.post("/chert", requireIngestSecret, upload.single("image"), async (req, res, next) => {
   try {
     const email = String(req.body?.email || "").trim().toLowerCase();
     const userId = String(req.body?.userId || "").trim();
 
     let user = null;
     if (email) {
-      user = findUserByEmail(email);
+      user = await findUserByEmail(email);
       if (!user) {
         return res.status(404).json({
           error:
@@ -112,7 +129,7 @@ router.post("/chert", requireIngestSecret, upload.single("image"), (req, res, ne
         });
       }
     } else if (userId) {
-      user = findUserById(userId);
+      user = await findUserById(userId);
       if (!user) {
         return res.status(404).json({ error: "No account for that userId" });
       }
@@ -125,13 +142,14 @@ router.post("/chert", requireIngestSecret, upload.single("image"), (req, res, ne
       return res.status(400).json({ error: "Provide capture image bytes" });
     }
 
-    const item = saveGalleryImage({
+    const item = await saveGalleryImage({
       userId: user.id,
       buffer: payload.buffer,
       mime: payload.mime || "image/png",
       originalName: payload.originalName || "chert-capture.png",
       note: req.body?.note || "Captured by Chert pose agent",
       source: "chert",
+      kind: "result",
     });
     res.status(201).json({ item: withUrl(req, item) });
   } catch (err) {

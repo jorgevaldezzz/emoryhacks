@@ -11,8 +11,9 @@ Emory Hacks Github Repo
 | `pose-matcher/` | Landmark comparison library used by the agent |
 
 Passwords are **bcrypt-hashed** in the API. Gallery images live on the API
-host’s disk; metadata and users live in SQLite. See [`api/README.md`](api/README.md)
-for deploy env vars and how to point the Vercel site + Chert agent at that host.
+host’s disk; metadata and users live in **MongoDB Atlas**. See
+[`api/README.md`](api/README.md) for deploy env vars and how to point the
+Vercel site + Chert agent at that host.
 
 ## Standalone pose matcher
 

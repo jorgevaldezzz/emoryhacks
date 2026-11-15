@@ -3,18 +3,22 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, before, describe, it } from "node:test";
-import { createRequire } from "node:module";
-
-const require = createRequire(import.meta.url);
+import { MongoMemoryServer } from "mongodb-memory-server";
 
 describe("imphotogenic api", async () => {
   const dataDir = await mkdtemp(path.join(tmpdir(), "imphoto-api-"));
+  /** @type {MongoMemoryServer} */
+  const mongod = await MongoMemoryServer.create();
+
   process.env.JWT_SECRET = "test-jwt-secret-32chars-minimum!!";
   process.env.GALLERY_INGEST_SECRET = "test-ingest-secret-32chars-min!!";
-  process.env.DATA_DIR = dataDir;
+  process.env.MONGODB_URI = mongod.getUri();
+  process.env.MONGODB_DB = "imphotogenic_test";
   process.env.UPLOAD_DIR = path.join(dataDir, "uploads");
-  process.env.SQLITE_PATH = path.join(dataDir, "test.sqlite");
+  process.env.DATA_DIR = dataDir;
   process.env.CORS_ORIGIN = "*";
+  process.env.GALLERY_MAX_ITEMS = "3";
+  delete process.env.BLOB_READ_WRITE_TOKEN;
 
   /** @type {import('express').Express} */
   let app;
@@ -25,7 +29,7 @@ describe("imphotogenic api", async () => {
 
   before(async () => {
     const mod = await import("../src/server.js");
-    app = mod.createApp();
+    app = await mod.createApp();
     await new Promise((resolve) => {
       server = app.listen(0, "127.0.0.1", resolve);
     });
@@ -36,7 +40,8 @@ describe("imphotogenic api", async () => {
   after(async () => {
     await new Promise((resolve) => server.close(resolve));
     const { closeDb } = await import("../src/db.js");
-    closeDb();
+    await closeDb();
+    await mongod.stop();
     await rm(dataDir, { recursive: true, force: true });
   });
 
@@ -52,28 +57,30 @@ describe("imphotogenic api", async () => {
     return { res, body };
   }
 
-  it("signs up and hashes the password (never returns the hash)", async () => {
+  it("signs up into MongoDB and hashes the password (never returns the hash)", async () => {
     const { res, body } = await json("/api/auth/signup", {
       method: "POST",
       body: JSON.stringify({
         email: "jorge@example.com",
         password: "secret12",
-        name: "Jorge",
+        username: "jorge",
       }),
     });
     assert.equal(res.status, 201);
     assert.ok(body.token);
     assert.equal(body.user.email, "jorge@example.com");
-    assert.equal(body.user.name, "Jorge");
+    assert.equal(body.user.username, "jorge");
     assert.equal(body.user.password, undefined);
-    assert.equal(body.user.password_hash, undefined);
+    assert.equal(body.user.passwordHash, undefined);
 
-    const DatabaseSync = require("node:sqlite").DatabaseSync;
-    const db = new DatabaseSync(process.env.SQLITE_PATH);
-    const row = db.prepare("SELECT password_hash FROM users WHERE email = ?").get("jorge@example.com");
-    db.close();
-    assert.ok(row.password_hash.startsWith("$2"));
-    assert.notEqual(row.password_hash, "secret12");
+    const mongoose = (await import("mongoose")).default;
+    const row = await mongoose.connection.db.collection("users").findOne({
+      email: "jorge@example.com",
+    });
+    assert.ok(row);
+    assert.equal(row.username, "jorge");
+    assert.ok(String(row.passwordHash).startsWith("$2"));
+    assert.notEqual(row.passwordHash, "secret12");
   });
 
   it("logs in with the correct password and rejects a wrong one", async () => {
@@ -91,13 +98,12 @@ describe("imphotogenic api", async () => {
     assert.ok(good.body.token);
   });
 
-  it("stores a gallery upload for the authenticated user", async () => {
+  it("stores a gallery upload attached to the authenticated user", async () => {
     const login = await json("/api/auth/login", {
       method: "POST",
       body: JSON.stringify({ email: "jorge@example.com", password: "secret12" }),
     });
     const token = login.body.token;
-    // 1x1 PNG
     const png = Buffer.from(
       "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
       "base64"
@@ -115,6 +121,8 @@ describe("imphotogenic api", async () => {
     });
     assert.equal(res.status, 201);
     assert.equal(body.item.source, "upload");
+    assert.equal(body.item.kind, "reference");
+    assert.ok(body.item.chertCode);
     assert.ok(body.item.url.includes("/uploads/"));
 
     const listed = await json("/api/gallery", {
@@ -146,6 +154,7 @@ describe("imphotogenic api", async () => {
     });
     assert.equal(res.status, 201);
     assert.equal(body.item.source, "chert");
+    assert.equal(body.item.kind, "result");
 
     const login = await json("/api/auth/login", {
       method: "POST",
@@ -155,6 +164,91 @@ describe("imphotogenic api", async () => {
       headers: { Authorization: `Bearer ${login.body.token}` },
     });
     assert.equal(listed.body.items.length, 2);
+    assert.equal(listed.body.maxItems, 3);
     assert.ok(listed.body.items.some((i) => i.source === "chert"));
+  });
+
+  it("returns 404 when deleting another user's gallery id", async () => {
+    const login = await json("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email: "jorge@example.com", password: "secret12" }),
+    });
+    const listed = await json("/api/gallery", {
+      headers: { Authorization: `Bearer ${login.body.token}` },
+    });
+    const victimId = listed.body.items[0].id;
+
+    await json("/api/auth/signup", {
+      method: "POST",
+      body: JSON.stringify({
+        email: "other@example.com",
+        password: "secret12",
+        username: "other",
+      }),
+    });
+    const otherLogin = await json("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email: "other@example.com", password: "secret12" }),
+    });
+    const del = await json(`/api/gallery/${victimId}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${otherLogin.body.token}` },
+    });
+    assert.equal(del.res.status, 404);
+  });
+
+  it("prunes the oldest gallery items when the per-user cap is exceeded", async () => {
+    const login = await json("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email: "jorge@example.com", password: "secret12" }),
+    });
+    const token = login.body.token;
+    const png = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+      "base64"
+    );
+
+    for (let i = 0; i < 3; i += 1) {
+      const { res } = await json("/api/gallery", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          imageBase64: png.toString("base64"),
+          mimeType: "image/png",
+          name: `extra-${i}.png`,
+          note: `cap-${i}`,
+        }),
+      });
+      assert.equal(res.status, 201);
+    }
+
+    const listed = await json("/api/gallery", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    assert.equal(listed.res.status, 200);
+    assert.equal(listed.body.items.length, 3);
+    assert.equal(listed.body.count, 3);
+    assert.equal(listed.body.maxItems, 3);
+
+    const health = await json("/health");
+    assert.equal(health.body.database, "mongodb");
+    assert.equal(health.body.storage, "local");
+    assert.equal(health.body.galleryMaxItems, 3);
+
+    const victim = listed.body.items[listed.body.items.length - 1];
+    const del = await json(`/api/gallery/${victim.id}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    assert.equal(del.res.status, 200);
+
+    const after = await json("/api/gallery", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    assert.equal(after.body.items.length, 2);
+    assert.equal(
+      after.body.items.some((i) => i.id === victim.id),
+      false
+    );
   });
 });

@@ -1,27 +1,33 @@
 import { getPublicUser, verifyToken } from "./auth.js";
 
 /**
- * Attach req.user when a valid Bearer token is present.
+ * Attach req.user / req.userId from Bearer token or httpOnly cookie.
+ * Identity comes from the token only — never from a client-supplied userId.
  * @param {import('express').Request} req
  * @param {import('express').Response} res
  * @param {import('express').NextFunction} next
  */
-export function requireAuth(req, res, next) {
+export async function requireAuth(req, res, next) {
   const header = req.headers.authorization || "";
   const match = /^Bearer\s+(.+)$/i.exec(header);
-  if (!match) {
-    return res.status(401).json({ error: "Authentication required" });
+  const cookieToken = req.cookies?.token;
+  const token = match?.[1] || cookieToken;
+
+  if (!token) {
+    return res.status(401).json({ error: "not logged in" });
   }
   try {
-    const payload = verifyToken(match[1]);
-    const user = getPublicUser(String(payload.sub));
+    const payload = verifyToken(token);
+    const userId = String(payload.sub);
+    const user = await getPublicUser(userId);
     if (!user) {
       return res.status(401).json({ error: "User no longer exists" });
     }
     req.user = user;
+    req.userId = user.id;
     return next();
   } catch {
-    return res.status(401).json({ error: "Invalid or expired token" });
+    return res.status(401).json({ error: "not logged in" });
   }
 }
 

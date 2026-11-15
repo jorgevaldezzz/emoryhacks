@@ -1,7 +1,14 @@
-import { DatabaseSync } from "node:sqlite";
+/**
+ * Cloud MongoDB (mongoose) for user accounts + gallery metadata.
+ *
+ * Set MONGODB_URI (MongoDB Atlas or any MongoDB). Tests may pass a memory-server URI.
+ */
+
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import mongoose from "mongoose";
+import { Image, User } from "./models.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, "..");
@@ -13,150 +20,203 @@ export const UPLOAD_DIR = process.env.UPLOAD_DIR
   ? path.resolve(process.env.UPLOAD_DIR)
   : path.join(ROOT, "uploads");
 
-const DB_PATH = process.env.SQLITE_PATH
-  ? path.resolve(process.env.SQLITE_PATH)
-  : path.join(DATA_DIR, "imphotogenic.sqlite");
-
-/** @type {DatabaseSync | null} */
-let db = null;
-
-export function getDb() {
-  if (!db) throw new Error("Database has not been opened yet");
-  return db;
+export function databaseMode() {
+  return "mongodb";
 }
 
-export function openDb() {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
+/**
+ * @param {string} [uri]
+ */
+export async function openDb(uri = process.env.MONGODB_URI) {
+  const connectionString = String(uri || "").trim();
+  if (!connectionString) {
+    throw new Error(
+      "MONGODB_URI is required. Use a MongoDB Atlas connection string (or mongodb-memory-server in tests)."
+    );
+  }
+
   fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
-  db = new DatabaseSync(DB_PATH);
-  db.exec(`
-    PRAGMA journal_mode = WAL;
-    PRAGMA foreign_keys = ON;
-
-    CREATE TABLE IF NOT EXISTS users (
-      id TEXT PRIMARY KEY,
-      email TEXT NOT NULL UNIQUE COLLATE NOCASE,
-      name TEXT NOT NULL,
-      password_hash TEXT NOT NULL,
-      created_at TEXT NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS gallery_items (
-      id TEXT PRIMARY KEY,
-      user_id TEXT NOT NULL,
-      filename TEXT NOT NULL,
-      original_name TEXT,
-      note TEXT,
-      source TEXT NOT NULL DEFAULT 'upload',
-      created_at TEXT NOT NULL,
-      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_gallery_user_created
-      ON gallery_items(user_id, created_at DESC);
-  `);
-
-  return db;
+  const dbName = process.env.MONGODB_DB?.trim() || undefined;
+  await mongoose.connect(connectionString, dbName ? { dbName } : undefined);
 }
 
-export function closeDb() {
-  if (db) {
-    db.close();
-    db = null;
+export async function closeDb() {
+  if (mongoose.connection.readyState !== 0) {
+    await mongoose.disconnect();
   }
+}
+
+/**
+ * @param {import('mongoose').Document | Record<string, unknown> | null | undefined} row
+ */
+function mapUser(row) {
+  if (!row) return undefined;
+  const doc = typeof row.toObject === "function" ? row.toObject() : row;
+  return {
+    id: String(doc._id),
+    email: doc.email,
+    name: doc.username || doc.name,
+    username: doc.username || doc.name,
+    password_hash: doc.passwordHash || doc.password_hash,
+    created_at:
+      doc.createdAt instanceof Date
+        ? doc.createdAt.toISOString()
+        : doc.createdAt || doc.created_at,
+  };
+}
+
+/**
+ * @param {import('mongoose').Document | Record<string, unknown> | null | undefined} row
+ */
+function mapGallery(row) {
+  if (!row) return undefined;
+  const doc = typeof row.toObject === "function" ? row.toObject() : row;
+  return {
+    id: String(doc._id),
+    filename: doc.filename || null,
+    url: doc.url || null,
+    storageKey: doc.storageKey || null,
+    pathname: doc.storageKey || null,
+    originalName: doc.originalName ?? null,
+    note: doc.note ?? null,
+    source: doc.source || "upload",
+    kind: doc.kind || "reference",
+    chertCode: doc.chertCode || null,
+    createdAt:
+      doc.createdAt instanceof Date
+        ? doc.createdAt.toISOString()
+        : String(doc.createdAt || doc.created_at || ""),
+  };
 }
 
 /**
  * @param {string} email
  */
-export function findUserByEmail(email) {
-  return getDb()
-    .prepare("SELECT * FROM users WHERE email = ? COLLATE NOCASE")
-    .get(email.trim().toLowerCase());
+export async function findUserByEmail(email) {
+  const row = await User.findOne({ email: email.trim().toLowerCase() });
+  return mapUser(row);
 }
 
 /**
  * @param {string} id
  */
-export function findUserById(id) {
-  return getDb().prepare("SELECT * FROM users WHERE id = ?").get(id);
+export async function findUserById(id) {
+  if (!mongoose.isValidObjectId(id)) return undefined;
+  const row = await User.findById(id);
+  return mapUser(row);
 }
 
 /**
- * @param {{ id: string, email: string, name: string, passwordHash: string, createdAt: string }} user
+ * @param {string} username
  */
-export function insertUser(user) {
-  getDb()
-    .prepare(
-      `INSERT INTO users (id, email, name, password_hash, created_at)
-       VALUES (?, ?, ?, ?, ?)`
-    )
-    .run(
-      user.id,
-      user.email.trim().toLowerCase(),
-      user.name,
-      user.passwordHash,
-      user.createdAt
-    );
+export async function findUserByUsername(username) {
+  const normalized = String(username || "").trim().toLowerCase();
+  if (!normalized) return undefined;
+  const row = await User.findOne({ username: normalized });
+  return mapUser(row);
+}
+
+/**
+ * @param {{ email: string, name: string, passwordHash: string }} user
+ */
+export async function insertUser(user) {
+  const username = String(user.name || "").trim().toLowerCase();
+  const created = await User.create({
+    email: user.email.trim().toLowerCase(),
+    username,
+    name: username,
+    passwordHash: user.passwordHash,
+  });
+  return mapUser(created);
 }
 
 /**
  * @param {string} userId
  */
-export function listGalleryForUser(userId) {
-  return getDb()
-    .prepare(
-      `SELECT id, filename, original_name AS originalName, note, source, created_at AS createdAt
-       FROM gallery_items
-       WHERE user_id = ?
-       ORDER BY created_at DESC`
-    )
-    .all(userId);
+export async function listGalleryForUser(userId) {
+  if (!mongoose.isValidObjectId(userId)) return [];
+  const rows = await Image.find({ userId }).sort({ createdAt: -1 });
+  return rows.map(mapGallery);
 }
 
 /**
- * @param {{ id: string, userId: string, filename: string, originalName?: string | null, note?: string | null, source: string, createdAt: string }} item
+ * @param {string} userId
  */
-export function insertGalleryItem(item) {
-  getDb()
-    .prepare(
-      `INSERT INTO gallery_items
-         (id, user_id, filename, original_name, note, source, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
-    )
-    .run(
-      item.id,
-      item.userId,
-      item.filename,
-      item.originalName ?? null,
-      item.note ?? null,
-      item.source,
-      item.createdAt
-    );
+export async function countGalleryForUser(userId) {
+  if (!mongoose.isValidObjectId(userId)) return 0;
+  return Image.countDocuments({ userId });
+}
+
+/**
+ * @param {string} userId
+ * @param {number} limit
+ */
+export async function listOldestGalleryForUser(userId, limit) {
+  if (!mongoose.isValidObjectId(userId)) return [];
+  const rows = await Image.find({ userId }).sort({ createdAt: 1 }).limit(limit);
+  return rows.map(mapGallery);
+}
+
+/**
+ * @param {{
+ *   userId: string,
+ *   filename?: string | null,
+ *   url?: string | null,
+ *   storageKey?: string | null,
+ *   originalName?: string | null,
+ *   note?: string | null,
+ *   source: string,
+ *   kind?: string,
+ *   chertCode?: string | null,
+ * }} item
+ */
+export async function insertGalleryItem(item) {
+  const created = await Image.create({
+    userId: item.userId,
+    filename: item.filename ?? null,
+    url: item.url ?? null,
+    storageKey: item.storageKey ?? null,
+    originalName: item.originalName ?? null,
+    note: item.note ?? null,
+    source: item.source,
+    kind: item.kind || (item.source === "chert" ? "result" : "reference"),
+    chertCode: item.chertCode ?? null,
+  });
+  return mapGallery(created);
 }
 
 /**
  * @param {string} id
  * @param {string} userId
  */
-export function findGalleryItemForUser(id, userId) {
-  return getDb()
-    .prepare(
-      `SELECT id, filename, original_name AS originalName, note, source, created_at AS createdAt
-       FROM gallery_items
-       WHERE id = ? AND user_id = ?`
-    )
-    .get(id, userId);
+export async function findGalleryItemForUser(id, userId) {
+  if (!mongoose.isValidObjectId(id) || !mongoose.isValidObjectId(userId)) {
+    return undefined;
+  }
+  const row = await Image.findOne({ _id: id, userId });
+  return mapGallery(row);
 }
 
 /**
+ * Filtering on userId means someone else's id returns null, not their data.
  * @param {string} id
  * @param {string} userId
  */
-export function deleteGalleryItem(id, userId) {
-  const item = findGalleryItemForUser(id, userId);
-  if (!item) return null;
-  getDb().prepare("DELETE FROM gallery_items WHERE id = ? AND user_id = ?").run(id, userId);
-  return item;
+export async function deleteGalleryItem(id, userId) {
+  if (!mongoose.isValidObjectId(id) || !mongoose.isValidObjectId(userId)) {
+    return null;
+  }
+  const row = await Image.findOneAndDelete({ _id: id, userId });
+  return mapGallery(row) || null;
+}
+
+/**
+ * @param {string} code
+ */
+export async function findGalleryByChertCode(code) {
+  const normalized = String(code || "").trim().toUpperCase();
+  if (!normalized) return undefined;
+  const row = await Image.findOne({ chertCode: normalized });
+  return mapGallery(row);
 }

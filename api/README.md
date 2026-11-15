@@ -2,9 +2,10 @@
 
 Separate backend for the Vercel website and the Chert pose agent.
 
-- **Users** — email + **bcrypt-hashed** passwords (never stored in plaintext)
-- **Sessions** — JWT bearer tokens
-- **Gallery** — image files on disk + metadata in SQLite
+- **Users (MongoDB Atlas)** — email + username + **bcrypt-hashed** passwords
+- **Sessions** — JWT bearer tokens (+ httpOnly cookie)
+- **Gallery** — image files on disk; metadata in MongoDB, always filtered by `req.userId`
+- **Cap** — `GALLERY_MAX_ITEMS` (default 25); oldest images are deleted when a user exceeds it
 - **Chert ingest** — pose snaps posted into a user’s gallery via a shared secret
 
 ## Run locally
@@ -12,20 +13,45 @@ Separate backend for the Vercel website and the Chert pose agent.
 ```sh
 cd api
 cp .env.example .env
-# edit JWT_SECRET, GALLERY_INGEST_SECRET, CORS_ORIGIN
+# set MONGODB_URI (Atlas), JWT_SECRET, GALLERY_INGEST_SECRET, CORS_ORIGIN
 npm install
 npm start
 ```
 
-Health check: `GET http://127.0.0.1:8787/health`
+Health check: `GET http://127.0.0.1:8787/health`  
+Returns `{ database: "mongodb", storage: "local", galleryMaxItems }`.
 
-## Deploy on another server
+## Cloud setup
 
-This is meant to live **off Vercel** (Railway, Render, Fly.io, a VPS, etc.):
+### MongoDB Atlas
 
-1. Set `JWT_SECRET`, `GALLERY_INGEST_SECRET`, and `CORS_ORIGIN` to your Vercel domain.
-2. Mount persistent volumes for `DATA_DIR` / `UPLOAD_DIR` (or the defaults `./data` and `./uploads`).
-3. Expose `PORT` (default `8787`).
+1. Create a free cluster at [mongodb.com/atlas](https://www.mongodb.com/atlas).
+2. Create a database user + allow network access for your API host.
+3. Copy the connection string into `MONGODB_URI`.
+4. Optional: `MONGODB_DB=imphotogenic`.
+
+Collections (created automatically by mongoose):
+
+| Collection | Fields |
+|------------|--------|
+| `users` | `email`, `passwordHash`, `name`, `username`, timestamps |
+| `images` | `userId`, `url`, `storageKey`, `filename`, `kind`, `chertCode`, `source`, `note`, timestamps |
+
+### Image files
+
+Gallery bytes live under `UPLOAD_DIR` (default `./uploads`). Mount a persistent volume on Railway/Render/Fly so uploads survive restarts.
+
+## Deploy the API
+
+```sh
+JWT_SECRET=…
+GALLERY_INGEST_SECRET=…
+MONGODB_URI=mongodb+srv://…
+MONGODB_DB=imphotogenic
+CORS_ORIGIN=https://your-app.vercel.app
+GALLERY_MAX_ITEMS=25
+UPLOAD_DIR=/uploads
+```
 
 Docker:
 
@@ -34,14 +60,13 @@ docker build -t imphotogenic-api .
 docker run --rm -p 8787:8787 \
   -e JWT_SECRET=... \
   -e GALLERY_INGEST_SECRET=... \
+  -e MONGODB_URI=mongodb+srv://... \
   -e CORS_ORIGIN=https://your-app.vercel.app \
-  -v imphoto-data:/data -v imphoto-uploads:/uploads \
+  -v imphoto-uploads:/uploads \
   imphotogenic-api
 ```
 
-## Wire the website (Vercel)
-
-In the browser (or edit `website/config.js`):
+## Wire the website
 
 ```js
 localStorage.setItem("IMPHOTOGENIC_API_URL", "https://your-api-host.example.com");
@@ -49,26 +74,23 @@ localStorage.setItem("IMPHOTOGENIC_API_URL", "https://your-api-host.example.com"
 
 ## Wire the Chert agent
 
-In `pose-agent/.env.local`:
-
 ```sh
 GALLERY_API_URL=https://your-api-host.example.com
 GALLERY_INGEST_SECRET=same-as-api
-GALLERY_USER_EMAIL=you@email.com   # must already have signed up on the site
+GALLERY_USER_EMAIL=you@email.com
 ```
-
-Each FaceTime snap is saved under `pose-agent/captures/` and also posted to `POST /api/gallery/chert`.
 
 ## API surface
 
 | Method | Path | Auth | Purpose |
 |--------|------|------|---------|
-| POST | `/api/auth/signup` | — | Create account (password hashed with bcrypt) |
-| POST | `/api/auth/login` | — | Log in → JWT |
-| GET | `/api/auth/me` | Bearer | Current user |
-| GET | `/api/gallery` | Bearer | List gallery items |
-| POST | `/api/gallery` | Bearer | Upload inspiration (`image` file or `imageBase64`) |
-| DELETE | `/api/gallery/:id` | Bearer | Remove an item |
+| POST | `/api/auth/signup` | — | Create account (`email`, `password`, `username`) |
+| POST | `/api/auth/login` | — | Log in → JWT + cookie |
+| POST | `/api/auth/logout` | — | Clear cookie |
+| GET | `/api/auth/me` | Bearer / cookie | Current user |
+| GET | `/api/gallery` | Bearer / cookie | List gallery (`items`, `count`, `maxItems`) |
+| POST | `/api/gallery` | Bearer / cookie | Upload inspiration image |
+| DELETE | `/api/gallery/:id` | Bearer / cookie | Remove item (scoped to your user) |
 | POST | `/api/gallery/chert` | `X-Ingest-Secret` | Agent snap → user gallery |
 | GET | `/uploads/:filename` | — | Serve stored image bytes |
 
@@ -77,3 +99,5 @@ Each FaceTime snap is saved under `pose-agent/captures/` and also posted to `POS
 ```sh
 npm test
 ```
+
+Uses `mongodb-memory-server` + local disk (no Atlas required).
