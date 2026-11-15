@@ -1,4 +1,5 @@
 import { fileURLToPath } from 'node:url';
+import { readFile } from 'node:fs/promises';
 import sharp from 'sharp';
 import { AutoSubscribe, cli, defineAgent, llm, ServerOptions, voice } from '@livekit/agents';
 import * as xai from '@livekit/agents-plugin-xai';
@@ -241,8 +242,10 @@ export default defineAgent({
 
       if (saved.ok && saved.bytes) {
         try {
+          // Gallery ingest uses the durable capture artifact as its source.
+          const captureBytes = await readFile(saved.savedPath);
           const gallery = await uploadCaptureToGallery({
-            bytes: saved.bytes,
+            bytes: captureBytes,
             mimeType: 'image/png',
             name: saved.savedPath ? saved.savedPath.split(/[\\/]/).pop() : undefined,
             note: 'Captured by Chert pose agent',

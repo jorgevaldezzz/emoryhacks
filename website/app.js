@@ -178,7 +178,9 @@ async function refreshGallery() {
   }
   try {
     const data = await api("/api/gallery");
-    state.gallery = (data.items || []).map((item) => ({
+    // Inspiration uploads remain stored for pose coaching, but only Chert
+    // captures belong in the user's visible gallery.
+    state.gallery = (data.items || []).filter((item) => item.source === "chert").map((item) => ({
       id: item.id,
       url: item.url,
       name: item.originalName || (item.source === "chert" ? "Chert capture" : "Inspiration upload"),
@@ -221,13 +223,13 @@ function renderGallery() {
   const sub = document.getElementById("gallerySub");
   const name = state.user?.name || state.user?.email || "you";
 
-  sub.textContent = `Gallery for ${name}. Inspiration uploads and Chert snaps stay with this account.`;
+  sub.textContent = `Chert captures saved for ${name}.`;
 
   if (!state.gallery.length) {
     grid.innerHTML = `
       <div class="empty-state">
         <strong>No shots yet</strong>
-        <p style="color:var(--muted);margin:8px 0 18px">Upload inspiration or take a Chert snap to seed your gallery.</p>
+        <p style="color:var(--muted);margin:8px 0 18px">Your Chert captures will appear here.</p>
         <a class="btn btn-primary" href="#upload">Go to Pose Direct &amp; Upload</a>
       </div>
     `;
